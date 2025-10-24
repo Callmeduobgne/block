@@ -1,0 +1,823 @@
+openapi: 3.0.3
+info:
+  title: Blockchain Gateway API
+  description: |
+    REST API Gateway cho Hyperledger Fabric Network
+    
+    Cung cấp các endpoints để:
+    - Quản lý chaincode lifecycle (package, install, approve, commit)
+    - Thực thi transactions và queries
+    - Xác thực bằng certificate
+    - Quản lý assets và users
+    
+  version: 2.0.0
+  contact:
+    name: Blockchain Team
+    email: blockchain@company.com
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://localhost:3000
+    description: Development server
+  - url: https://api.blockchain.com
+    description: Production server
+
+security:
+  - BearerAuth: []
+  - ClientCertAuth: []
+
+paths:
+  # Health Check
+  /health:
+    get:
+      summary: Health check
+      description: Kiểm tra trạng thái của API Gateway
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  # Authentication
+  /api/auth/login:
+    post:
+      summary: User login
+      description: Đăng nhập bằng username/password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/cert-login:
+    post:
+      summary: Certificate login
+      description: Đăng nhập bằng client certificate
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CertLoginRequest'
+      responses:
+        '200':
+          description: Certificate authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertLoginResponse'
+        '401':
+          description: Invalid certificate
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # Chaincode Lifecycle
+  /api/chaincode/package:
+    post:
+      summary: Package chaincode
+      description: Tạo chaincode package từ source code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PackageRequest'
+      responses:
+        '200':
+          description: Chaincode packaged successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PackageResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/chaincode/install:
+    post:
+      summary: Install chaincode
+      description: Cài đặt chaincode package lên peer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InstallRequest'
+      responses:
+        '200':
+          description: Chaincode installed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstallResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/chaincode/approve:
+    post:
+      summary: Approve chaincode definition
+      description: Phê duyệt chaincode definition cho organization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApproveRequest'
+      responses:
+        '200':
+          description: Chaincode definition approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApproveResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/chaincode/commit:
+    post:
+      summary: Commit chaincode definition
+      description: Commit chaincode definition lên channel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommitRequest'
+      responses:
+        '200':
+          description: Chaincode definition committed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommitResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/chaincode/invoke:
+    post:
+      summary: Invoke chaincode function
+      description: Thực thi chaincode function (write transaction)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvokeRequest'
+      responses:
+        '200':
+          description: Transaction submitted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvokeResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/chaincode/query:
+    post:
+      summary: Query chaincode function
+      description: Thực thi chaincode function (read-only query)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueryRequest'
+      responses:
+        '200':
+          description: Query executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # Asset Management (Existing)
+  /api/assets:
+    get:
+      summary: Get all assets
+      description: Lấy danh sách tất cả assets
+      responses:
+        '200':
+          description: Assets retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetsResponse'
+    post:
+      summary: Create asset
+      description: Tạo asset mới
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAssetRequest'
+      responses:
+        '200':
+          description: Asset created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetResponse'
+
+  /api/assets/{id}:
+    get:
+      summary: Get asset by ID
+      description: Lấy thông tin asset theo ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Asset retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetResponse'
+    put:
+      summary: Update asset
+      description: Cập nhật thông tin asset
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAssetRequest'
+      responses:
+        '200':
+          description: Asset updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetResponse'
+    delete:
+      summary: Delete asset
+      description: Xóa asset (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Asset deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    ClientCertAuth:
+      type: apiKey
+      in: header
+      name: X-Client-Certificate
+
+  schemas:
+    # Health Response
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "healthy"
+        timestamp:
+          type: string
+          format: date-time
+        uptime:
+          type: number
+        version:
+          type: string
+        environment:
+          type: string
+        memory:
+          type: object
+
+    # Authentication Schemas
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          example: "admin"
+        password:
+          type: string
+          example: "admin"
+
+    LoginResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            user:
+              $ref: '#/components/schemas/User'
+            tokens:
+              $ref: '#/components/schemas/Tokens'
+
+    CertLoginRequest:
+      type: object
+      required:
+        - clientCert
+        - privateKey
+        - caCert
+        - mspId
+      properties:
+        clientCert:
+          type: string
+          description: "Base64 encoded client certificate"
+        privateKey:
+          type: string
+          description: "Base64 encoded private key"
+        caCert:
+          type: string
+          description: "Base64 encoded CA certificate"
+        mspId:
+          type: string
+          example: "Org1MSP"
+
+    CertLoginResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            user:
+              $ref: '#/components/schemas/CertUser'
+            tokens:
+              $ref: '#/components/schemas/Tokens'
+
+    # Chaincode Lifecycle Schemas
+    PackageRequest:
+      type: object
+      required:
+        - chaincodeName
+        - version
+        - path
+      properties:
+        chaincodeName:
+          type: string
+          example: "basic"
+        version:
+          type: string
+          example: "1.0"
+        path:
+          type: string
+          example: "/opt/chaincode/basic"
+        outputPath:
+          type: string
+          example: "/tmp/basic.tar.gz"
+
+    PackageResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            packageId:
+              type: string
+            packagePath:
+              type: string
+            chaincodeName:
+              type: string
+            version:
+              type: string
+            timestamp:
+              type: string
+              format: date-time
+            logs:
+              type: array
+              items:
+                type: string
+
+    InstallRequest:
+      type: object
+      required:
+        - packagePath
+        - peerEndpoint
+      properties:
+        packagePath:
+          type: string
+          example: "/tmp/basic.tar.gz"
+        peerEndpoint:
+          type: string
+          example: "peer0.org1.example.com:7051"
+        packageId:
+          type: string
+          example: "basic_1.0:abc123..."
+
+    InstallResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            packageId:
+              type: string
+            peerEndpoint:
+              type: string
+            timestamp:
+              type: string
+              format: date-time
+            logs:
+              type: array
+              items:
+                type: string
+
+    ApproveRequest:
+      type: object
+      required:
+        - chaincodeName
+        - version
+        - sequence
+        - packageId
+      properties:
+        chaincodeName:
+          type: string
+          example: "basic"
+        version:
+          type: string
+          example: "1.0"
+        sequence:
+          type: integer
+          example: 1
+        packageId:
+          type: string
+          example: "basic_1.0:abc123..."
+        channelName:
+          type: string
+          example: "mychannel"
+        peerEndpoint:
+          type: string
+          example: "peer0.org1.example.com:7051"
+
+    ApproveResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            chaincodeName:
+              type: string
+            version:
+              type: string
+            sequence:
+              type: integer
+            timestamp:
+              type: string
+              format: date-time
+            logs:
+              type: array
+              items:
+                type: string
+
+    CommitRequest:
+      type: object
+      required:
+        - chaincodeName
+        - version
+        - sequence
+      properties:
+        chaincodeName:
+          type: string
+          example: "basic"
+        version:
+          type: string
+          example: "1.0"
+        sequence:
+          type: integer
+          example: 1
+        channelName:
+          type: string
+          example: "mychannel"
+        peerEndpoints:
+          type: array
+          items:
+            type: string
+          example: ["peer0.org1.example.com:7051"]
+
+    CommitResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            chaincodeName:
+              type: string
+            version:
+              type: string
+            sequence:
+              type: integer
+            channelName:
+              type: string
+            timestamp:
+              type: string
+              format: date-time
+            logs:
+              type: array
+              items:
+                type: string
+
+    # Transaction Schemas
+    InvokeRequest:
+      type: object
+      required:
+        - chaincodeName
+        - functionName
+        - args
+      properties:
+        chaincodeName:
+          type: string
+          example: "basic"
+        functionName:
+          type: string
+          example: "CreateAsset"
+        args:
+          type: array
+          items:
+            type: string
+          example: ["asset1", "blue", "5", "Tomoko", "300"]
+        channelName:
+          type: string
+          example: "mychannel"
+
+    InvokeResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            transactionId:
+              type: string
+            chaincodeName:
+              type: string
+            functionName:
+              type: string
+            timestamp:
+              type: string
+              format: date-time
+            result:
+              type: string
+
+    QueryRequest:
+      type: object
+      required:
+        - chaincodeName
+        - functionName
+        - args
+      properties:
+        chaincodeName:
+          type: string
+          example: "basic"
+        functionName:
+          type: string
+          example: "ReadAsset"
+        args:
+          type: array
+          items:
+            type: string
+          example: ["asset1"]
+        channelName:
+          type: string
+          example: "mychannel"
+
+    QueryResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            chaincodeName:
+              type: string
+            functionName:
+              type: string
+            timestamp:
+              type: string
+              format: date-time
+            result:
+              type: object
+
+    # Asset Schemas
+    CreateAssetRequest:
+      type: object
+      required:
+        - id
+        - color
+        - size
+        - owner
+        - appraisedValue
+      properties:
+        id:
+          type: string
+          example: "asset1"
+        color:
+          type: string
+          example: "blue"
+        size:
+          type: integer
+          example: 5
+        owner:
+          type: string
+          example: "Tomoko"
+        appraisedValue:
+          type: integer
+          example: 300
+
+    UpdateAssetRequest:
+      type: object
+      properties:
+        color:
+          type: string
+        size:
+          type: integer
+        owner:
+          type: string
+        appraisedValue:
+          type: integer
+
+    Asset:
+      type: object
+      properties:
+        ID:
+          type: string
+        Color:
+          type: string
+        Size:
+          type: integer
+        Owner:
+          type: string
+        AppraisedValue:
+          type: integer
+
+    AssetResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            asset:
+              $ref: '#/components/schemas/Asset'
+            transactionId:
+              type: string
+
+    AssetsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            assets:
+              type: array
+              items:
+                $ref: '#/components/schemas/Asset'
+            count:
+              type: integer
+            timestamp:
+              type: string
+              format: date-time
+
+    # User Schemas
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        role:
+          type: string
+        email:
+          type: string
+
+    CertUser:
+      type: object
+      properties:
+        mspId:
+          type: string
+        certificate:
+          type: string
+        role:
+          type: string
+
+    Tokens:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: string
+
+    # Common Schemas
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        details:
+          type: array
+          items:
+            type: string
+        timestamp:
+          type: string
+          format: date-time

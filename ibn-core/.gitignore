@@ -1,0 +1,31 @@
+# Ignore generated files and directories
+organizations/ordererOrganizations/
+organizations/peerOrganizations/
+channel-artifacts/*
+!channel-artifacts/.gitkeep
+
+# Fabric CA generated files
+organizations/fabric-ca/*/msp
+organizations/fabric-ca/*/tls-cert.pem
+organizations/fabric-ca/*/ca-cert.pem
+organizations/fabric-ca/*/IssuerPublicKey
+organizations/fabric-ca/*/IssuerRevocationPublicKey
+organizations/fabric-ca/*/fabric-ca-server.db
+
+# Chaincode packages
+scripts/*.tar.gz
+scripts/log.txt
+
+# Docker volumes
+.docker/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

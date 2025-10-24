@@ -1,0 +1,1734 @@
+openapi: 3.0.3
+info:
+  title: Blockchain Gateway Backend API
+  version: 3.0.0
+  description: |
+    Backend API for chaincode lifecycle orchestration with RBAC.
+    
+    This API provides comprehensive management of:
+    - User authentication and authorization with JWT tokens
+    - Role-based access control (ADMIN, ORG_ADMIN, USER, VIEWER)
+    - Chaincode lifecycle management (upload, validate, approve, deploy)
+    - Deployment orchestration with workflow management
+    - Certificate synchronization with Fabric CA
+    - Audit logging for all operations
+    
+    ## Authentication
+    
+    The API uses JWT tokens for authentication. Include the token in the Authorization header:
+    ```
+    Authorization: Bearer <your-jwt-token>
+    ```
+    
+    ## Roles and Permissions
+    
+    - **ADMIN**: Full system access, can manage users, approve chaincodes, configure system
+    - **ORG_ADMIN**: Organization administrator, can upload/deploy chaincodes, view users
+    - **USER**: Regular user, can invoke/query chaincodes, manage assets
+    - **VIEWER**: Read-only access, can query chaincodes and view assets
+    
+  contact:
+    name: Blockchain Gateway Team
+    email: support@blockchain.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:4000/api/v1
+    description: Development server
+  - url: https://api.blockchain.com/api/v1
+    description: Production server
+
+tags:
+  - name: Authentication
+    description: User authentication and authorization
+  - name: User Management
+    description: User management operations (Admin only)
+  - name: Chaincode Management
+    description: Chaincode lifecycle management
+  - name: Deployment Management
+    description: Chaincode deployment and execution
+  - name: Certificate Management
+    description: Certificate synchronization with Fabric CA
+
+paths:
+  # Authentication endpoints
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: User login
+      description: Authenticate user with username and password
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+              properties:
+                username:
+                  type: string
+                  example: admin
+                password:
+                  type: string
+                  example: admin123
+      responses:
+        '200':
+          description: Successful login
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                    example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                  refresh_token:
+                    type: string
+                    example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                  token_type:
+                    type: string
+                    example: bearer
+                  expires_in:
+                    type: integer
+                    example: 1800
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/refresh:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh access token
+      description: Get new access token using refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refresh_token
+              properties:
+                refresh_token:
+                  type: string
+                  example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Invalid refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/me:
+    get:
+      tags:
+        - Authentication
+      summary: Get current user info
+      description: Get information about the currently authenticated user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: User information retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfoResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # User Management endpoints
+  /users:
+    post:
+      tags:
+        - User Management
+      summary: Create new user
+      description: Create a new user (Admin only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreateRequest'
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Invalid user data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      tags:
+        - User Management
+      summary: Get users list
+      description: Get list of users with optional filters (Admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: skip
+          in: query
+          description: Number of records to skip
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          description: Number of records to return
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: role
+          in: query
+          description: Filter by role
+          required: false
+          schema:
+            type: string
+            enum: [ADMIN, ORG_ADMIN, USER, VIEWER]
+        - name: status
+          in: query
+          description: Filter by status
+          required: false
+          schema:
+            type: string
+            enum: [active, inactive, suspended]
+        - name: organization
+          in: query
+          description: Filter by organization
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Users retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /users/{user_id}:
+    get:
+      tags:
+        - User Management
+      summary: Get user by ID
+      description: Get user information by ID (Admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          description: User ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      tags:
+        - User Management
+      summary: Update user
+      description: Update user information (Admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          description: User ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdateRequest'
+      responses:
+        '200':
+          description: User updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Invalid user data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # Chaincode Management endpoints
+  /chaincode/upload:
+    post:
+      tags:
+        - Chaincode Management
+      summary: Upload chaincode
+      description: Upload a new chaincode (Org Admin and above)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChaincodeUploadRequest'
+      responses:
+        '201':
+          description: Chaincode uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChaincodeResponse'
+        '400':
+          description: Invalid chaincode data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /chaincode:
+    get:
+      tags:
+        - Chaincode Management
+      summary: Get chaincodes list
+      description: Get list of chaincodes with optional filters
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: skip
+          in: query
+          description: Number of records to skip
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          description: Number of records to return
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: status
+          in: query
+          description: Filter by status
+          required: false
+          schema:
+            type: string
+            enum: [uploaded, validated, approved, rejected, deployed, active, deprecated]
+        - name: uploaded_by
+          in: query
+          description: Filter by uploader
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Chaincodes retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChaincodeListResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /chaincode/{chaincode_id}:
+    get:
+      tags:
+        - Chaincode Management
+      summary: Get chaincode by ID
+      description: Get chaincode information by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: chaincode_id
+          in: path
+          required: true
+          description: Chaincode ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Chaincode retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChaincodeResponse'
+        '404':
+          description: Chaincode not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      tags:
+        - Chaincode Management
+      summary: Update chaincode
+      description: Update chaincode information (Org Admin and above)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: chaincode_id
+          in: path
+          required: true
+          description: Chaincode ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChaincodeUpdateRequest'
+      responses:
+        '200':
+          description: Chaincode updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChaincodeResponse'
+        '400':
+          description: Invalid chaincode data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Chaincode not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /chaincode/{chaincode_id}/approve:
+    put:
+      tags:
+        - Chaincode Management
+      summary: Approve chaincode
+      description: Approve a chaincode (Admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: chaincode_id
+          in: path
+          required: true
+          description: Chaincode ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Chaincode approved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChaincodeResponse'
+        '404':
+          description: Chaincode not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /chaincode/{chaincode_id}/reject:
+    put:
+      tags:
+        - Chaincode Management
+      summary: Reject chaincode
+      description: Reject a chaincode with reason (Admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: chaincode_id
+          in: path
+          required: true
+          description: Chaincode ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - rejection_reason
+              properties:
+                rejection_reason:
+                  type: string
+                  example: "Code quality issues"
+      responses:
+        '200':
+          description: Chaincode rejected successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChaincodeResponse'
+        '404':
+          description: Chaincode not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # Deployment Management endpoints
+  /deployments/deploy:
+    post:
+      tags:
+        - Deployment Management
+      summary: Deploy chaincode
+      description: Deploy a chaincode to the blockchain network
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChaincodeDeployRequest'
+      responses:
+        '202':
+          description: Deployment initiated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentResponse'
+        '400':
+          description: Invalid deployment data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /deployments/invoke:
+    post:
+      tags:
+        - Deployment Management
+      summary: Invoke chaincode function
+      description: Invoke a chaincode function (write transaction)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChaincodeInvokeRequest'
+      responses:
+        '200':
+          description: Chaincode invoked successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvokeResponse'
+        '400':
+          description: Invalid invoke data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /deployments/query:
+    post:
+      tags:
+        - Deployment Management
+      summary: Query chaincode function
+      description: Query a chaincode function (read-only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChaincodeQueryRequest'
+      responses:
+        '200':
+          description: Chaincode queried successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResponse'
+        '400':
+          description: Invalid query data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /deployments:
+    get:
+      tags:
+        - Deployment Management
+      summary: Get deployments list
+      description: Get list of deployments with optional filters
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: skip
+          in: query
+          description: Number of records to skip
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          description: Number of records to return
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: status
+          in: query
+          description: Filter by deployment status
+          required: false
+          schema:
+            type: string
+            enum: [pending, deploying, success, failed, rolled_back]
+        - name: deployed_by
+          in: query
+          description: Filter by deployer
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Deployments retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentListResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /deployments/{deployment_id}:
+    get:
+      tags:
+        - Deployment Management
+      summary: Get deployment by ID
+      description: Get deployment information by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: deployment_id
+          in: path
+          required: true
+          description: Deployment ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Deployment retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentDetailResponse'
+        '404':
+          description: Deployment not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /deployments/{deployment_id}/status:
+    get:
+      tags:
+        - Deployment Management
+      summary: Get deployment status
+      description: Get current status of a deployment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: deployment_id
+          in: path
+          required: true
+          description: Deployment ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Deployment status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentStatusResponse'
+        '404':
+          description: Deployment not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # Certificate Management endpoints
+  /certificates/sync:
+    post:
+      tags:
+        - Certificate Management
+      summary: Synchronize certificates
+      description: Synchronize user certificates with Fabric CA (Admin only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                force_sync:
+                  type: boolean
+                  default: false
+                  description: Force immediate sync instead of background
+      responses:
+        '200':
+          description: Certificate synchronization completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateSyncResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /certificates/register:
+    post:
+      tags:
+        - Certificate Management
+      summary: Register user with Fabric CA
+      description: Register a new user with Fabric CA (Admin only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CertificateRegisterRequest'
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateRegisterResponse'
+        '400':
+          description: Invalid registration data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /certificates/enroll:
+    post:
+      tags:
+        - Certificate Management
+      summary: Enroll user with Fabric CA
+      description: Enroll user with Fabric CA to get certificate
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CertificateEnrollRequest'
+      responses:
+        '200':
+          description: User enrolled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateEnrollResponse'
+        '400':
+          description: Invalid enrollment data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /certificates/revoke:
+    post:
+      tags:
+        - Certificate Management
+      summary: Revoke certificate
+      description: Revoke a certificate in Fabric CA (Admin only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CertificateRevokeRequest'
+      responses:
+        '200':
+          description: Certificate revoked successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Invalid revocation data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /certificates/status/{certificate_id}:
+    get:
+      tags:
+        - Certificate Management
+      summary: Get certificate status
+      description: Get certificate status (Admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: certificate_id
+          in: path
+          required: true
+          description: Certificate ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Certificate status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateStatusResponse'
+        '404':
+          description: Certificate not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /certificates/my-certificate:
+    get:
+      tags:
+        - Certificate Management
+      summary: Get my certificate status
+      description: Get current user's certificate status
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Certificate status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateStatusResponse'
+        '404':
+          description: No certificate found for current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from login endpoint
+
+  schemas:
+    # Common response schemas
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Operation completed successfully"
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: "Error message"
+        detail:
+          type: string
+          example: "Detailed error information"
+
+    # Authentication schemas
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        refresh_token:
+          type: string
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        token_type:
+          type: string
+          example: "bearer"
+        expires_in:
+          type: integer
+          example: 1800
+
+    UserInfoResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        username:
+          type: string
+          example: "admin"
+        email:
+          type: string
+          example: "admin@blockchain.com"
+        role:
+          type: string
+          enum: [ADMIN, ORG_ADMIN, USER, VIEWER]
+          example: "ADMIN"
+        organization:
+          type: string
+          example: "Blockchain Gateway"
+        msp_id:
+          type: string
+          example: "Org1MSP"
+        is_active:
+          type: boolean
+          example: true
+        last_login:
+          type: string
+          format: date-time
+          example: "2023-12-01T10:30:00Z"
+
+    # User Management schemas
+    UserCreateRequest:
+      type: object
+      required:
+        - username
+        - email
+        - password
+        - role
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          example: "john_doe"
+        email:
+          type: string
+          format: email
+          example: "john@example.com"
+        password:
+          type: string
+          minLength: 8
+          example: "securepassword123"
+        role:
+          type: string
+          enum: [ADMIN, ORG_ADMIN, USER, VIEWER]
+          example: "USER"
+        msp_id:
+          type: string
+          example: "Org1MSP"
+        organization:
+          type: string
+          example: "Example Corp"
+
+    UserUpdateRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          example: "john_doe"
+        email:
+          type: string
+          format: email
+          example: "john@example.com"
+        role:
+          type: string
+          enum: [ADMIN, ORG_ADMIN, USER, VIEWER]
+          example: "USER"
+        msp_id:
+          type: string
+          example: "Org1MSP"
+        organization:
+          type: string
+          example: "Example Corp"
+        status:
+          type: string
+          enum: [active, inactive, suspended]
+          example: "active"
+
+    UserResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        username:
+          type: string
+          example: "john_doe"
+        email:
+          type: string
+          example: "john@example.com"
+        role:
+          type: string
+          enum: [ADMIN, ORG_ADMIN, USER, VIEWER]
+          example: "USER"
+        msp_id:
+          type: string
+          example: "Org1MSP"
+        organization:
+          type: string
+          example: "Example Corp"
+        status:
+          type: string
+          enum: [active, inactive, suspended]
+          example: "active"
+        is_active:
+          type: boolean
+          example: true
+        is_verified:
+          type: boolean
+          example: false
+        last_login:
+          type: string
+          format: date-time
+          example: "2023-12-01T10:30:00Z"
+        created_at:
+          type: string
+          format: date-time
+          example: "2023-12-01T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          example: "2023-12-01T10:30:00Z"
+
+    UserListResponse:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserResponse'
+        total:
+          type: integer
+          example: 25
+        page:
+          type: integer
+          example: 1
+        size:
+          type: integer
+          example: 100
+
+    # Chaincode Management schemas
+    ChaincodeUploadRequest:
+      type: object
+      required:
+        - name
+        - version
+        - source_code
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: "basic"
+        version:
+          type: string
+          minLength: 1
+          maxLength: 20
+          example: "1.0"
+        source_code:
+          type: string
+          example: "package main\n\nimport (\n\t\"fmt\"\n\t\"github.com/hyperledger/fabric-contract-api-go/contractapi\"\n)\n\nfunc main() {\n\t// Chaincode implementation\n}"
+        description:
+          type: string
+          example: "Basic asset management chaincode"
+        language:
+          type: string
+          enum: [golang, java, javascript, typescript]
+          default: "golang"
+          example: "golang"
+
+    ChaincodeUpdateRequest:
+      type: object
+      properties:
+        description:
+          type: string
+          example: "Updated description"
+        metadata:
+          type: object
+          additionalProperties: true
+          example:
+            author: "John Doe"
+            version_notes: "Bug fixes"
+
+    ChaincodeResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        name:
+          type: string
+          example: "basic"
+        version:
+          type: string
+          example: "1.0"
+        source_code:
+          type: string
+          example: "package main\n\n..."
+        description:
+          type: string
+          example: "Basic asset management chaincode"
+        language:
+          type: string
+          example: "golang"
+        status:
+          type: string
+          enum: [uploaded, validated, approved, rejected, deployed, active, deprecated]
+          example: "uploaded"
+        uploaded_by:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        approved_by:
+          type: string
+          format: uuid
+          nullable: true
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        approval_date:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2023-12-01T10:30:00Z"
+        rejection_reason:
+          type: string
+          nullable: true
+          example: "Code quality issues"
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          example: "2023-12-01T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          example: "2023-12-01T10:30:00Z"
+
+    ChaincodeListResponse:
+      type: object
+      properties:
+        chaincodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChaincodeResponse'
+        total:
+          type: integer
+          example: 10
+        page:
+          type: integer
+          example: 1
+        size:
+          type: integer
+          example: 100
+
+    # Deployment Management schemas
+    ChaincodeDeployRequest:
+      type: object
+      required:
+        - chaincode_id
+        - channel_name
+        - target_peers
+      properties:
+        chaincode_id:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        channel_name:
+          type: string
+          example: "mychannel"
+        target_peers:
+          type: array
+          items:
+            type: string
+          example: ["peer0.org1.example.com:7051"]
+
+    ChaincodeInvokeRequest:
+      type: object
+      required:
+        - chaincode_id
+        - function_name
+        - args
+      properties:
+        chaincode_id:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        function_name:
+          type: string
+          example: "CreateAsset"
+        args:
+          type: array
+          items:
+            type: string
+          example: ["asset1", "100", "blue", "35", "bob"]
+        channel_name:
+          type: string
+          default: "mychannel"
+          example: "mychannel"
+
+    ChaincodeQueryRequest:
+      type: object
+      required:
+        - chaincode_id
+        - function_name
+        - args
+      properties:
+        chaincode_id:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        function_name:
+          type: string
+          example: "ReadAsset"
+        args:
+          type: array
+          items:
+            type: string
+          example: ["asset1"]
+        channel_name:
+          type: string
+          default: "mychannel"
+          example: "mychannel"
+
+    DeploymentResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Deployment initiated"
+        deployment_id:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        status:
+          type: string
+          example: "pending"
+
+    InvokeResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        transaction_id:
+          type: string
+          example: "tx123456789"
+        result:
+          type: object
+          additionalProperties: true
+
+    QueryResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        result:
+          type: object
+          additionalProperties: true
+
+    DeploymentDetailResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+              example: "123e4567-e89b-12d3-a456-426614174000"
+            chaincode_id:
+              type: string
+              format: uuid
+              example: "123e4567-e89b-12d3-a456-426614174000"
+            channel_name:
+              type: string
+              example: "mychannel"
+            target_peers:
+              type: array
+              items:
+                type: string
+              example: ["peer0.org1.example.com:7051"]
+            deployment_status:
+              type: string
+              enum: [pending, deploying, success, failed, rolled_back]
+              example: "success"
+            deployed_by:
+              type: string
+              format: uuid
+              example: "123e4567-e89b-12d3-a456-426614174000"
+            deployment_date:
+              type: string
+              format: date-time
+              nullable: true
+              example: "2023-12-01T10:30:00Z"
+            completion_date:
+              type: string
+              format: date-time
+              nullable: true
+              example: "2023-12-01T10:35:00Z"
+            error_message:
+              type: string
+              nullable: true
+              example: null
+            deployment_logs:
+              type: string
+              nullable: true
+              example: "Deployment completed successfully"
+            created_at:
+              type: string
+              format: date-time
+              example: "2023-12-01T10:30:00Z"
+            updated_at:
+              type: string
+              format: date-time
+              example: "2023-12-01T10:35:00Z"
+
+    DeploymentListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeploymentDetailResponse'
+        total:
+          type: integer
+          example: 5
+        page:
+          type: integer
+          example: 1
+        size:
+          type: integer
+          example: 100
+
+    DeploymentStatusResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            deployment_id:
+              type: string
+              format: uuid
+              example: "123e4567-e89b-12d3-a456-426614174000"
+            status:
+              type: string
+              enum: [pending, deploying, success, failed, rolled_back]
+              example: "success"
+            chaincode_id:
+              type: string
+              format: uuid
+              example: "123e4567-e89b-12d3-a456-426614174000"
+            channel_name:
+              type: string
+              example: "mychannel"
+            target_peers:
+              type: array
+              items:
+                type: string
+              example: ["peer0.org1.example.com:7051"]
+            error_message:
+              type: string
+              nullable: true
+              example: null
+            deployment_logs:
+              type: string
+              nullable: true
+              example: "Deployment completed successfully"
+            created_at:
+              type: string
+              format: date-time
+              example: "2023-12-01T10:30:00Z"
+            completion_date:
+              type: string
+              format: date-time
+              nullable: true
+              example: "2023-12-01T10:35:00Z"
+
+    # Certificate Management schemas
+    CertificateRegisterRequest:
+      type: object
+      required:
+        - username
+        - organization
+      properties:
+        username:
+          type: string
+          example: "john_doe"
+        organization:
+          type: string
+          example: "org1"
+        role:
+          type: string
+          default: "user"
+          example: "user"
+
+    CertificateRegisterResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "User registered with Fabric CA"
+        data:
+          type: object
+          properties:
+            username:
+              type: string
+              example: "john_doe"
+            secret:
+              type: string
+              example: "secret123"
+            certificate_id:
+              type: string
+              example: "cert123456789"
+
+    CertificateEnrollRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          example: "john_doe"
+        password:
+          type: string
+          example: "secret123"
+        organization:
+          type: string
+          default: "org1"
+          example: "org1"
+
+    CertificateEnrollResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "User enrolled successfully"
+        data:
+          type: object
+          properties:
+            certificate_id:
+              type: string
+              example: "cert123456789"
+            certificate:
+              type: string
+              example: "-----BEGIN CERTIFICATE-----\n..."
+            private_key:
+              type: string
+              example: "-----BEGIN PRIVATE KEY-----\n..."
+
+    CertificateRevokeRequest:
+      type: object
+      required:
+        - certificate_id
+      properties:
+        certificate_id:
+          type: string
+          example: "cert123456789"
+        reason:
+          type: string
+          default: "unspecified"
+          example: "User left organization"
+
+    CertificateStatusResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            certificate_id:
+              type: string
+              example: "cert123456789"
+            user_id:
+              type: string
+              format: uuid
+              example: "123e4567-e89b-12d3-a456-426614174000"
+            username:
+              type: string
+              example: "john_doe"
+            organization:
+              type: string
+              example: "org1"
+            msp_id:
+              type: string
+              example: "Org1MSP"
+            is_active:
+              type: boolean
+              example: true
+            status:
+              type: string
+              example: "active"
+            last_sync:
+              type: string
+              format: date-time
+              nullable: true
+              example: "2023-12-01T10:30:00Z"
+
+    CertificateSyncResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Certificate synchronization completed"
+        results:
+          type: object
+          properties:
+            total_users:
+              type: integer
+              example: 25
+            valid_certificates:
+              type: integer
+              example: 23
+            invalid_certificates:
+              type: integer
+              example: 2
+            sync_errors:
+              type: array
+              items:
+                type: object
+                properties:
+                  user_id:
+                    type: string
+                    format: uuid
+                  username:
+                    type: string
+                  error:
+                    type: string
+              example: []

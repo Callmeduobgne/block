@@ -1,0 +1,155 @@
+# Full Stack Blockchain Gateway - Docker Compose
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: blockchain-postgres
+    environment:
+      POSTGRES_DB: blockchain_gateway
+      POSTGRES_USER: gateway_user
+      POSTGRES_PASSWORD: gateway_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - blockchain-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gateway_user -d blockchain_gateway"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: blockchain-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - blockchain-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: blockchain-backend
+    environment:
+      - DATABASE_URL=postgresql://gateway_user:gateway_password@postgres:5432/blockchain_gateway
+      - REDIS_URL=redis://redis:6379
+      - SECRET_KEY=your-secret-key-change-in-production
+      - ACCESS_TOKEN_EXPIRE_MINUTES=30
+      - REFRESH_TOKEN_EXPIRE_DAYS=7
+      - ENVIRONMENT=production
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - blockchain-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: blockchain-frontend
+    environment:
+      - REACT_APP_API_URL=http://localhost:4000/api/v1
+      - REACT_APP_WS_URL=ws://localhost:4000
+      - REACT_APP_ENVIRONMENT=development
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - blockchain-network
+    restart: unless-stopped
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: ./gateway/api-gateway
+      dockerfile: Dockerfile
+    container_name: blockchain-api-gateway
+    environment:
+      - BACKEND_URL=http://backend:4000
+      - FRONTEND_URL=http://frontend:80
+      - ENVIRONMENT=production
+      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
+    ports:
+      - "8080:3000"
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - blockchain-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Fabric Gateway
+  fabric-gateway:
+    build:
+      context: ./gateway/fabric-gateway
+      dockerfile: Dockerfile
+    container_name: blockchain-fabric-gateway
+    environment:
+      - FABRIC_NETWORK_CONFIG_PATH=/app/config
+      - ENVIRONMENT=production
+      - FABRIC_PEER_ENDPOINT=peer0.org1.example.com:7051
+      - FABRIC_CHANNEL_NAME=mychannel
+      - FABRIC_CHAINCODE_NAME=basic
+      - FABRIC_MSP_ID=Org1MSP
+      - FABRIC_IDENTITY=User1@org1.example.com
+    volumes:
+      - ./ibn-core/organizations:/app/organizations:ro
+      - ./ibn-core/channel-artifacts:/app/channel-artifacts:ro
+    ports:
+      - "8081:3000"
+    networks:
+      - blockchain-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  blockchain-network:
+    driver: bridge
