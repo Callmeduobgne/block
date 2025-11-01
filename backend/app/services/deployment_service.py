@@ -2,12 +2,14 @@
 Backend Phase 3 - Deployment Service
 """
 from typing import List, Optional
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from uuid import UUID
 from app.models.deployment import Deployment
 from app.models.chaincode import Chaincode
 from app.services.audit_service import AuditService
 from app.services.workflow_service import WorkflowService
+from app.services.websocket_service import websocket_service
 import httpx
 from app.config import settings
 
@@ -23,7 +25,8 @@ class DeploymentService:
         chaincode_id: UUID, 
         channel_name: str, 
         target_peers: List[str],
-        deployed_by: UUID
+        deployed_by: UUID,
+        sequence: int = 1
     ) -> Deployment:
         """Create a new deployment"""
         # Verify chaincode exists and is approved
@@ -40,7 +43,11 @@ class DeploymentService:
             channel_name=channel_name,
             target_peers=target_peers,
             deployment_status="pending",
-            deployed_by=deployed_by
+            deployed_by=deployed_by,
+            deployment_metadata={
+                **({} if not hasattr(Deployment, 'deployment_metadata') else {}),
+                "sequence": sequence
+            }
         )
         
         self.db.add(db_deployment)
@@ -94,16 +101,26 @@ class DeploymentService:
         deployment = self.get_deployment_by_id(deployment_id)
         if not deployment:
             return None
-        
+
         deployment.deployment_status = status
+
+        now = datetime.now(timezone.utc)
+        if status == "deploying" and not deployment.deployment_date:
+            deployment.deployment_date = now
+
+        if status in {"success", "failed", "rolled_back"}:
+            deployment.completion_date = now
+            if status == "success":
+                deployment.error_message = None
+
         if error_message:
             deployment.error_message = error_message
         if deployment_logs:
             deployment.deployment_logs = deployment_logs
-        
+
         self.db.commit()
         self.db.refresh(deployment)
-        
+
         # Log audit event
         self.audit_service.log_event(
             user_id=deployment.deployed_by,
@@ -112,7 +129,7 @@ class DeploymentService:
             resource_id=str(deployment_id),
             details={"status": status, "error_message": error_message}
         )
-        
+
         return deployment
     
     async def execute_deployment(self, deployment_id: UUID) -> dict:
@@ -129,16 +146,33 @@ class DeploymentService:
             result = await self.workflow_service.execute_deployment_workflow(deployment)
             
             if result["success"]:
-                # Update chaincode status to active
+                # Update chaincode status to deployed (align with mainflow)
                 chaincode = self.db.query(Chaincode).filter(
                     Chaincode.id == deployment.chaincode_id
                 ).first()
                 if chaincode:
                     chaincode.status = "active"
+                    # store deployed metadata for traceability
+                    deployment.deployment_metadata = {
+                        **(deployment.deployment_metadata or {}),
+                        "version": chaincode.version,
+                        "channel": deployment.channel_name,
+                        "target_peers": deployment.target_peers
+                    }
                     self.db.commit()
                 
                 # Update deployment status to success
                 self.update_deployment_status(deployment_id, "success")
+                
+                # Emit WebSocket update
+                await websocket_service.emit_deployment_update(
+                    str(deployment_id),
+                    {
+                        "deployment_id": str(deployment_id),
+                        "status": "success",
+                        "message": "Deployment completed successfully"
+                    }
+                )
                 
                 return {
                     "success": True,
@@ -178,7 +212,7 @@ class DeploymentService:
         chaincode_id: UUID, 
         function_name: str, 
         args: List[str],
-        channel_name: str = "mychannel"
+        channel_name: str = "ibnchannel"
     ) -> dict:
         """Invoke chaincode function"""
         # Get chaincode info
@@ -193,14 +227,15 @@ class DeploymentService:
         invoke_data = {
             "chaincodeName": chaincode.name,
             "functionName": function_name,
-            "args": args
+            "args": args,
+            "channelName": channel_name  # Add channelName for gateway
         }
         
         try:
             # Call Fabric Gateway
             async with httpx.AsyncClient(timeout=settings.GATEWAY_TIMEOUT) as client:
                 response = await client.post(
-                    f"{settings.GATEWAY_URL}/api/chaincode/invoke",
+                    f"{settings.FABRIC_GATEWAY_URL}/api/chaincode/invoke",
                     json=invoke_data
                 )
                 
@@ -228,7 +263,7 @@ class DeploymentService:
         chaincode_id: UUID, 
         function_name: str, 
         args: List[str],
-        channel_name: str = "mychannel"
+        channel_name: str = "ibnchannel"
     ) -> dict:
         """Query chaincode function"""
         # Get chaincode info
@@ -240,14 +275,15 @@ class DeploymentService:
         query_data = {
             "chaincodeName": chaincode.name,
             "functionName": function_name,
-            "args": args
+            "args": args,
+            "channelName": channel_name  # Add channelName for gateway
         }
         
         try:
             # Call Fabric Gateway
             async with httpx.AsyncClient(timeout=settings.GATEWAY_TIMEOUT) as client:
                 response = await client.post(
-                    f"{settings.GATEWAY_URL}/api/chaincode/query",
+                    f"{settings.FABRIC_GATEWAY_URL}/api/chaincode/query",
                     json=query_data
                 )
                 

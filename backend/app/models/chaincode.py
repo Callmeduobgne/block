@@ -21,6 +21,7 @@ class Chaincode(Base):
     status = Column(String(20), default="uploaded", index=True)  # uploaded, validated, approved, rejected, deployed, active, deprecated
     uploaded_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     approved_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"))
     approval_date = Column(DateTime(timezone=True))
     rejection_reason = Column(Text)
     chaincode_metadata = Column(JSON)
@@ -33,6 +34,7 @@ class Chaincode(Base):
     # Relationships
     uploader = relationship("User", back_populates="uploaded_chaincodes", foreign_keys=[uploaded_by])
     approver = relationship("User", back_populates="approved_chaincodes", foreign_keys=[approved_by])
+    project = relationship("Project", back_populates="chaincodes")
     deployments = relationship("Deployment", back_populates="chaincode")
     approvals = relationship("Approval", back_populates="chaincode")
     versions = relationship("ChaincodeVersion", back_populates="chaincode")

@@ -8,7 +8,8 @@ ROOT_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
 
 export PATH=${ROOT_DIR}/bin:$PATH
 export FABRIC_CFG_PATH=${ROOT_DIR}/config/
-export CHANNEL_NAME=testchannel
+# Channel name can be overridden via env: CHANNEL_NAME=IBNchannel ./deployAssetTransfer.sh
+export CHANNEL_NAME=${CHANNEL_NAME:-testchannel}
 export CHAINCODE_NAME=asset-transfer-basic
 export CHAINCODE_VERSION=1.0
 export CHAINCODE_PATH=${ROOT_DIR}/chaincode/asset-transfer-basic

@@ -25,6 +25,7 @@ class CertificateRegisterRequest(BaseModel):
 class CertificateEnrollRequest(BaseModel):
     username: str
     password: str
+    organization: str
     organization: str = "org1"
 
 
@@ -115,10 +116,15 @@ async def enroll_user_with_ca(
     )
     
     if result["success"]:
-        # Update user's certificate_id in database
+        # Update user's certificate information in database
         user = db.query(User).filter(User.username == enroll_data.username).first()
         if user:
+            from app.utils.certificate_encryption import cert_encryption
+            
             user.certificate_id = result.get("certificate_id")
+            user.certificate_pem = result.get("certificate")
+            user.private_key_pem = cert_encryption.encrypt_private_key(result.get("private_key"))
+            user.public_key_pem = result.get("public_key")  # Extract from certificate if needed
             db.commit()
         
         return {
@@ -135,6 +141,37 @@ async def enroll_user_with_ca(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=result["error"]
         )
+
+
+@router.get("/user/{user_id}")
+async def get_user_certificate(
+    user_id: str,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """Get user certificate information (Admin only)"""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    from app.utils.certificate_encryption import cert_encryption
+    
+    return {
+        "user_id": user.id,
+        "username": user.username,
+        "certificate_id": user.certificate_id,
+        "msp_id": user.msp_id,
+        "organization": user.organization,
+        "certificate_pem": user.certificate_pem,
+        "public_key_pem": user.public_key_pem,
+        "private_key_pem": cert_encryption.decrypt_private_key(user.private_key_pem) if user.private_key_pem else None,
+        "has_certificate": bool(user.certificate_pem),
+        "created_at": user.created_at,
+        "updated_at": user.updated_at
+    }
 
 
 @router.post("/revoke")

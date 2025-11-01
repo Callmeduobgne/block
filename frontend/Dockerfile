@@ -9,7 +9,7 @@ COPY package*.json ./
 
 # Install dependencies with cache mount
 RUN --mount=type=cache,target=/root/.npm \
-    npm install --omit=dev --no-audit --no-fund
+    npm install --no-audit --no-fund
 
 # Copy source code
 COPY . .

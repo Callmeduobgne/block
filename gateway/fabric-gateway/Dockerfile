@@ -1,14 +1,22 @@
-# Fabric Gateway Dockerfile
-FROM node:18-alpine
+# Fabric Gateway Dockerfile - Use golang base with Node installed
+FROM golang:1.22-bullseye
 
-# Install required packages
-RUN apk add --no-cache \
-    python3 \
-    make \
-    g++ \
-    openssl \
-    curl \
-    && rm -rf /var/cache/apk/*
+# Install Node.js 18
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs \
+    && apt-get install -y --no-install-recommends \
+       python3 \
+       make \
+       g++ \
+       openssl \
+       curl \
+       git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set Go environment - ensure Go binaries are in PATH
+ENV GOPATH="/go" \
+    GO111MODULE=on \
+    PATH="/usr/local/go/bin:${PATH}"
 
 # Set working directory
 WORKDIR /app
@@ -25,9 +33,9 @@ COPY src/ ./src/
 # Create wallet directory
 RUN mkdir -p wallet logs
 
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
+# Create non-root user (Debian)
+RUN groupadd -g 1001 nodejs && \
+    useradd -r -u 1001 -g nodejs nodejs
 
 # Change ownership
 RUN chown -R nodejs:nodejs /app

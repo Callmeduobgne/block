@@ -33,7 +33,8 @@ async def deploy_chaincode(
             chaincode_id=deploy_data.chaincode_id,
             channel_name=deploy_data.channel_name,
             target_peers=deploy_data.target_peers,
-            deployed_by=current_user.id
+            deployed_by=current_user.id,
+            sequence=deploy_data.sequence or 1
         )
         
         # Start deployment in background

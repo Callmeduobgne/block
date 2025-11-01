@@ -8,9 +8,11 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import time
 from app.config import settings
-from app.api import auth, chaincodes, users, deployments, certificates
+from app.api import auth, chaincodes, users, deployments, certificates, channels, projects
 from app.database import engine
 from app.models import *  # Import all models
+from app.middleware.security_headers import SecurityHeadersMiddleware
+from app.services.websocket_service import websocket_service
 
 
 @asynccontextmanager
@@ -41,13 +43,21 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Mount WebSocket service
+app.mount("/ws", websocket_service.app)
+
+# Add Security Headers middleware (FIRST - before other middlewares)
+app.add_middleware(SecurityHeadersMiddleware)
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.BACKEND_CORS_ORIGINS,
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Explicit methods instead of ["*"]
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],  # Explicit headers
+    expose_headers=["X-Process-Time"],
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
 
 # Add trusted host middleware
@@ -70,14 +80,38 @@ async def add_process_time_header(request: Request, call_next):
 # Global exception handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    return JSONResponse(
-        status_code=500,
-        content={
-            "success": False,
-            "error": "Internal server error",
-            "detail": str(exc) if settings.DEBUG else "An error occurred"
-        }
-    )
+    """
+    Global exception handler - prevents leaking sensitive information
+    In production, only generic error messages are shown
+    """
+    # Log the full error internally for debugging
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    
+    # In production, don't expose internal error details
+    if settings.DEBUG:
+        # Development: show detailed error
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": "Internal server error",
+                "detail": str(exc),
+                "type": type(exc).__name__
+            }
+        )
+    else:
+        # Production: hide error details
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": "Internal server error",
+                "detail": "An unexpected error occurred. Please contact support if the problem persists.",
+                "request_id": id(request)  # Include request ID for support tracking
+            }
+        )
 
 
 # Health check endpoint
@@ -132,6 +166,18 @@ app.include_router(
     certificates.router,
     prefix=f"{settings.API_V1_STR}/certificates",
     tags=["Certificate Management"]
+)
+
+app.include_router(
+    channels.router,
+    prefix=f"{settings.API_V1_STR}/channels",
+    tags=["Channel Management"]
+)
+
+app.include_router(
+    projects.router,
+    prefix=f"{settings.API_V1_STR}/projects",
+    tags=["Project Management"]
 )
 
 

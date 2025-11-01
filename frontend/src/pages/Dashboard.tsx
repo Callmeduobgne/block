@@ -64,8 +64,8 @@ const Dashboard: React.FC = () => {
   }, [chaincodesData]);
 
   useEffect(() => {
-    if (deploymentsData?.data) {
-      const deployments = deploymentsData.data || [];
+    if (deploymentsData?.data?.data) {
+      const deployments = deploymentsData.data.data || [];
       const activeDeployments = deployments.filter(
         (dep: any) => dep.deployment_status === 'pending' || dep.deployment_status === 'deploying'
       ).length;

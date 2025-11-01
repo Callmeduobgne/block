@@ -27,7 +27,14 @@ const DeploymentMonitor: React.FC = () => {
     }
   );
 
-  const deployments = deploymentsData?.data || [];
+  // Normalize response shape: backend returns { success, data: { deployments, total, page, size } }
+  const deployments: any[] = Array.isArray((deploymentsData as any)?.data?.deployments)
+    ? (deploymentsData as any).data.deployments
+    : Array.isArray((deploymentsData as any)?.deployments)
+      ? (deploymentsData as any).deployments
+      : Array.isArray((deploymentsData as any))
+        ? (deploymentsData as any)
+        : [];
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -128,7 +135,7 @@ const DeploymentMonitor: React.FC = () => {
             <div className="ml-3">
               <p className="text-sm font-medium text-gray-500">Chờ xử lý</p>
               <p className="text-2xl font-semibold text-gray-900">
-                {deployments.filter((d: any) => d.deployment_status === 'pending').length}
+                {(deployments || []).filter((d: any) => d?.deployment_status === 'pending').length}
               </p>
             </div>
           </div>
@@ -140,7 +147,7 @@ const DeploymentMonitor: React.FC = () => {
             <div className="ml-3">
               <p className="text-sm font-medium text-gray-500">Đang triển khai</p>
               <p className="text-2xl font-semibold text-gray-900">
-                {deployments.filter((d: any) => d.deployment_status === 'deploying').length}
+                {(deployments || []).filter((d: any) => d?.deployment_status === 'deploying').length}
               </p>
             </div>
           </div>
@@ -152,7 +159,7 @@ const DeploymentMonitor: React.FC = () => {
             <div className="ml-3">
               <p className="text-sm font-medium text-gray-500">Thành công</p>
               <p className="text-2xl font-semibold text-gray-900">
-                {deployments.filter((d: any) => d.deployment_status === 'success').length}
+                {(deployments || []).filter((d: any) => d?.deployment_status === 'success').length}
               </p>
             </div>
           </div>
@@ -164,7 +171,7 @@ const DeploymentMonitor: React.FC = () => {
             <div className="ml-3">
               <p className="text-sm font-medium text-gray-500">Thất bại</p>
               <p className="text-2xl font-semibold text-gray-900">
-                {deployments.filter((d: any) => d.deployment_status === 'failed').length}
+                {(deployments || []).filter((d: any) => d?.deployment_status === 'failed').length}
               </p>
             </div>
           </div>
@@ -180,7 +187,7 @@ const DeploymentMonitor: React.FC = () => {
         </div>
         
         <div className="overflow-hidden">
-          {deployments.length === 0 ? (
+          {(deployments || []).length === 0 ? (
             <div className="text-center py-12">
               <Monitor className="mx-auto h-12 w-12 text-gray-400" />
               <h3 className="mt-2 text-sm font-medium text-gray-900">Không có deployment nào</h3>
@@ -190,7 +197,7 @@ const DeploymentMonitor: React.FC = () => {
             </div>
           ) : (
             <div className="divide-y divide-gray-200">
-              {deployments.map((deployment: any) => (
+              {(deployments || []).map((deployment: any) => (
                 <div key={deployment.id} className="px-6 py-4 hover:bg-gray-50">
                   <div className="flex items-center justify-between">
                     <div className="flex-1">

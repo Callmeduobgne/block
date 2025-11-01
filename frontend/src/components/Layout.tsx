@@ -11,7 +11,9 @@ import {
   LogOut,
   Menu,
   X,
-  Bell
+  Bell,
+  Search,
+  Network
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import clsx from 'clsx';
@@ -61,6 +63,18 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       href: '/test-console',
       icon: Terminal,
       permission: 'chaincode.invoke',
+    },
+    {
+      name: 'Channel Manager',
+      href: '/channels',
+      icon: Network,
+      permission: 'channel.manage',
+    },
+    {
+      name: 'Block Explorer',
+      href: '/block-explorer',
+      icon: Search,
+      permission: null,
     },
     {
       name: 'User Management',

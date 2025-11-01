@@ -15,6 +15,14 @@ class ChaincodeLifecycleService {
   }
 
   /**
+   * Chuẩn hóa địa chỉ peer: loại bỏ schema (http://, https://, grpc://)
+   */
+  normalizePeerAddress(endpoint) {
+    if (!endpoint || typeof endpoint !== 'string') return endpoint;
+    return endpoint.replace(/^\s*(grpc:\/\/|grpcs:\/\/|http:\/\/|https:\/\/)\s*/i, '');
+  }
+
+  /**
    * Package chaincode từ source code
    */
   async packageChaincode(request) {
@@ -22,9 +30,29 @@ class ChaincodeLifecycleService {
     
     try {
       logger.info(`Packaging chaincode: ${chaincodeName} v${version}`);
+      // For golang chaincode, ensure go modules are resolved to generate go.sum
+      // Note: Don't use go mod vendor - peer will resolve dependencies from go.mod/go.sum automatically
+      try {
+        const goModPath = path.join(sourcePath, 'go.mod');
+        await fs.access(goModPath);
+        await this._runGoModTidy(sourcePath);
+        // Remove vendor directory if exists (from previous attempts)
+        const vendorPath = path.join(sourcePath, 'vendor');
+        try {
+          await fs.access(vendorPath);
+          const { execSync } = require('child_process');
+          execSync(`rm -rf ${vendorPath}`, { cwd: sourcePath });
+          logger.info(`Removed vendor directory: ${vendorPath}`);
+        } catch (e) {
+          // vendor directory doesn't exist, continue
+        }
+      } catch (e) {
+        // go.mod may not exist; continue
+        logger.warn(`go.mod not found or go mod tidy failed: ${e.message || e}`);
+      }
       
-      // Tạo package ID
-      const packageId = `${chaincodeName}_${version}:${crypto.randomBytes(8).toString('hex')}`;
+      // Tạo package ID - label không được chứa dấu ':' theo yêu cầu của peer
+      const packageId = `${chaincodeName}_${version}-${crypto.randomBytes(8).toString('hex')}`;
       
       // Đường dẫn output mặc định nếu không có
       const finalOutputPath = outputPath || `/tmp/${chaincodeName}.tar.gz`;
@@ -60,6 +88,55 @@ class ChaincodeLifecycleService {
     }
   }
 
+  async _runGoModTidy(cwd) {
+    return new Promise((resolve, reject) => {
+      const logs = [];
+      const env = {
+        ...process.env,
+        GOCACHE: '/tmp/go-build',
+        GOPATH: '/tmp/go',
+        GOMODCACHE: '/tmp/go/pkg/mod'
+      };
+      logger.info(`Running 'go mod tidy' in ${cwd}`);
+      const child = spawn('go', ['mod', 'tidy'], { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
+      child.stdout.on('data', d => logger.info(`go stdout: ${d.toString()}`));
+      child.stderr.on('data', d => logger.warn(`go stderr: ${d.toString()}`));
+      child.on('close', code => {
+        if (code === 0) return resolve();
+        return reject(new Error(`go mod tidy failed with exit code ${code}`));
+      });
+      child.on('error', err => reject(err));
+      setTimeout(() => {
+        try { child.kill(); } catch {}
+        reject(new Error('go mod tidy timeout'));
+      }, 120000);
+    });
+  }
+
+  async _runGoModVendor(cwd) {
+    return new Promise((resolve, reject) => {
+      const env = {
+        ...process.env,
+        GOCACHE: '/tmp/go-build',
+        GOPATH: '/tmp/go',
+        GOMODCACHE: '/tmp/go/pkg/mod'
+      };
+      logger.info(`Running 'go mod vendor' in ${cwd}`);
+      const child = spawn('go', ['mod', 'vendor'], { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
+      child.stdout.on('data', d => logger.info(`go stdout: ${d.toString()}`));
+      child.stderr.on('data', d => logger.warn(`go stderr: ${d.toString()}`));
+      child.on('close', code => {
+        if (code === 0) return resolve();
+        return reject(new Error(`go mod vendor failed with exit code ${code}`));
+      });
+      child.on('error', err => reject(err));
+      setTimeout(() => {
+        try { child.kill(); } catch {}
+        reject(new Error('go mod vendor timeout'));
+      }, 180000);
+    });
+  }
+
   /**
    * Install chaincode package lên peer
    */
@@ -80,20 +157,41 @@ class ChaincodeLifecycleService {
       
       const env = {
         ...process.env,
-        CORE_PEER_ADDRESS: peerEndpoint,
+        CORE_PEER_ADDRESS: this.normalizePeerAddress(peerEndpoint),
         CORE_PEER_LOCALMSPID: this.mspId,
-        CORE_PEER_MSPCONFIGPATH: path.join(this.cryptoPath, 'peerOrganizations', 'org1.example.com', 'users', 'User1@org1.example.com', 'msp'),
-        FABRIC_CFG_PATH: '/etc/hyperledger/fabric'
+      CORE_PEER_MSPCONFIGPATH: path.join(this.cryptoPath, 'peerOrganizations', 'org1.example.com', 'users', 'Admin@org1.example.com', 'msp'),
+      FABRIC_CFG_PATH: '/etc/hyperledger/fabric',
+      // TLS settings
+      CORE_PEER_TLS_ENABLED: 'true',
+      CORE_PEER_TLS_ROOTCERT_FILE: path.join(
+        '/app/organizations',
+        'peerOrganizations',
+        'org1.example.com',
+        'peers',
+        'peer0.org1.example.com',
+        'tls',
+        'ca.crt'
+      ),
+      CORE_PEER_MSPCONFIGPATH: path.join(
+        '/app/organizations',
+        'peerOrganizations',
+        'org1.example.com',
+        'users',
+        'Admin@org1.example.com',
+        'msp'
+      )
       };
       
       const result = await this.executePeerCommand(command, env);
       
-      logger.info(`Chaincode package ${packageId} installed successfully`);
+      const resolvedPackageId = this._extractPackageIdentifier(result.logs, packageId);
+      
+      logger.info(`Chaincode package ${resolvedPackageId} installed successfully`);
       
       return {
         success: true,
         data: {
-          packageId,
+          packageId: resolvedPackageId,
           peerEndpoint,
           timestamp: new Date().toISOString(),
           logs: result.logs
@@ -101,8 +199,31 @@ class ChaincodeLifecycleService {
       };
       
     } catch (error) {
+      const errorLogs = error?.logs || [];
+      const combinedLogs = errorLogs.join('\n');
+      const alreadyInstalled = combinedLogs.includes('chaincode already successfully installed');
+      
+      if (alreadyInstalled) {
+        const resolvedPackageId = this._extractPackageIdentifier(errorLogs, packageId);
+        logger.info(`Chaincode package ${resolvedPackageId} already installed. Returning success.`);
+        return {
+          success: true,
+          data: {
+            packageId: resolvedPackageId,
+            peerEndpoint,
+            alreadyInstalled: true,
+            timestamp: new Date().toISOString(),
+            logs: errorLogs
+          }
+        };
+      }
+      
       logger.error(`Failed to install chaincode package ${packageId}:`, error);
-      throw new Error(`Install failed: ${error.message}`);
+      const truncatedLogs = combinedLogs
+        ? combinedLogs.substring(Math.max(0, combinedLogs.length - 2000))
+        : '';
+      const detailSuffix = truncatedLogs ? ` | Logs: ${truncatedLogs}` : '';
+      throw new Error(`Install failed: ${error.message}${detailSuffix}`);
     }
   }
 
@@ -131,16 +252,37 @@ class ChaincodeLifecycleService {
         '--package-id', packageId,
         '--sequence', sequence.toString(),
         '--orderer', this.ordererEndpoint,
+        '--ordererTLSHostnameOverride', 'orderer.example.com',
         '--tls',
-        '--cafile', path.join(this.cryptoPath, 'ordererOrganizations', 'example.com', 'orderers', 'orderer.example.com', 'msp', 'tlscacerts', 'tlsca.example.com-cert.pem')
+        '--cafile', path.join('/app/organizations', 'ordererOrganizations', 'example.com', 'orderers', 'orderer.example.com', 'msp', 'tlscacerts', 'tlsca.example.com-cert.pem'),
+        '--peerAddresses', this.normalizePeerAddress(peerEndpoint),
+        '--tlsRootCertFiles', path.join(
+          '/app/organizations',
+          'peerOrganizations',
+          'org1.example.com',
+          'peers',
+          'peer0.org1.example.com',
+          'tls',
+          'ca.crt'
+        )
       ];
       
       const env = {
         ...process.env,
-        CORE_PEER_ADDRESS: peerEndpoint,
+        CORE_PEER_ADDRESS: this.normalizePeerAddress(peerEndpoint),
         CORE_PEER_LOCALMSPID: this.mspId,
-        CORE_PEER_MSPCONFIGPATH: path.join(this.cryptoPath, 'peerOrganizations', 'org1.example.com', 'users', 'User1@org1.example.com', 'msp'),
-        FABRIC_CFG_PATH: '/etc/hyperledger/fabric'
+        CORE_PEER_MSPCONFIGPATH: path.join('/app/organizations', 'peerOrganizations', 'org1.example.com', 'users', 'Admin@org1.example.com', 'msp'),
+        FABRIC_CFG_PATH: '/etc/hyperledger/fabric',
+        CORE_PEER_TLS_ENABLED: 'true',
+        CORE_PEER_TLS_ROOTCERT_FILE: path.join(
+          '/app/organizations',
+          'peerOrganizations',
+          'org1.example.com',
+          'peers',
+          'peer0.org1.example.com',
+          'tls',
+          'ca.crt'
+        )
       };
       
       const result = await this.executePeerCommand(command, env);
@@ -192,16 +334,39 @@ class ChaincodeLifecycleService {
         '--version', version,
         '--sequence', sequence.toString(),
         '--orderer', this.ordererEndpoint,
+        '--ordererTLSHostnameOverride', 'orderer.example.com',
         '--tls',
-        '--cafile', path.join(this.cryptoPath, 'ordererOrganizations', 'example.com', 'orderers', 'orderer.example.com', 'msp', 'tlscacerts', 'tlsca.example.com-cert.pem'),
-        ...peerEndpoints.flatMap(endpoint => ['--peerAddresses', endpoint])
+        '--cafile', path.join('/app/organizations', 'ordererOrganizations', 'example.com', 'orderers', 'orderer.example.com', 'msp', 'tlscacerts', 'tlsca.example.com-cert.pem'),
+        ...peerEndpoints.flatMap(endpoint => [
+          '--peerAddresses', this.normalizePeerAddress(endpoint),
+          '--tlsRootCertFiles', path.join(
+            '/app/organizations',
+            'peerOrganizations',
+            'org1.example.com',
+            'peers',
+            'peer0.org1.example.com',
+            'tls',
+            'ca.crt'
+          )
+        ])
       ];
       
       const env = {
         ...process.env,
+        CORE_PEER_ADDRESS: this.normalizePeerAddress(peerEndpoints[0]),
         CORE_PEER_LOCALMSPID: this.mspId,
-        CORE_PEER_MSPCONFIGPATH: path.join(this.cryptoPath, 'peerOrganizations', 'org1.example.com', 'users', 'User1@org1.example.com', 'msp'),
-        FABRIC_CFG_PATH: '/etc/hyperledger/fabric'
+        CORE_PEER_MSPCONFIGPATH: path.join('/app/organizations', 'peerOrganizations', 'org1.example.com', 'users', 'Admin@org1.example.com', 'msp'),
+        FABRIC_CFG_PATH: '/etc/hyperledger/fabric',
+        CORE_PEER_TLS_ENABLED: 'true',
+        CORE_PEER_TLS_ROOTCERT_FILE: path.join(
+          '/app/organizations',
+          'peerOrganizations',
+          'org1.example.com',
+          'peers',
+          'peer0.org1.example.com',
+          'tls',
+          'ca.crt'
+        )
       };
       
       const result = await this.executePeerCommand(command, env);
@@ -259,7 +424,10 @@ class ChaincodeLifecycleService {
         if (code === 0) {
           resolve({ logs });
         } else {
-          reject(new Error(`Peer command failed with exit code ${code}`));
+          const error = new Error(`Peer command failed with exit code ${code}`);
+          error.logs = logs;
+          error.exitCode = code;
+          reject(error);
         }
       });
       
@@ -274,6 +442,18 @@ class ChaincodeLifecycleService {
         reject(new Error('Peer command timeout'));
       }, 300000); // 5 minutes timeout
     });
+  }
+
+  _extractPackageIdentifier(logs, fallback) {
+    if (!logs || logs.length === 0) {
+      return fallback;
+    }
+    const joined = Array.isArray(logs) ? logs.join('\n') : String(logs);
+    const match = joined.match(/Chaincode code package identifier:\s*([^\s]+)/);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+    return fallback;
   }
 
   /**

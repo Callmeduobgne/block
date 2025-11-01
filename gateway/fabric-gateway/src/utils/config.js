@@ -6,11 +6,15 @@ const config = {
   
   // Fabric Configuration
   FABRIC_PEER_ENDPOINT: process.env.FABRIC_PEER_ENDPOINT || 'peer0.org1.example.com:7051',
-  FABRIC_CHANNEL_NAME: process.env.FABRIC_CHANNEL_NAME || 'mychannel',
+  FABRIC_CHANNEL_NAME: process.env.FABRIC_CHANNEL_NAME || 'testchannel',
   FABRIC_CHAINCODE_NAME: process.env.FABRIC_CHAINCODE_NAME || 'basic',
   FABRIC_MSP_ID: process.env.FABRIC_MSP_ID || 'Org1MSP',
   FABRIC_IDENTITY: process.env.FABRIC_IDENTITY || 'User1@org1.example.com',
   FABRIC_AS_LOCALHOST: process.env.FABRIC_AS_LOCALHOST !== 'false',
+  // Binary path & endpoints used by lifecycle service
+  PEER_BINARY_PATH: process.env.PEER_BINARY_PATH,
+  ORDERER_ENDPOINT: process.env.ORDERER_ENDPOINT,
+  FABRIC_CRYPTO_PATH: process.env.FABRIC_CRYPTO_PATH || process.env.FABRIC_NETWORK_CONFIG_PATH,
   
   // Logging
   LOG_LEVEL: process.env.LOG_LEVEL || 'info',

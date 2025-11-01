@@ -10,6 +10,7 @@ const path = require('path');
 const authRoutes = require('./routes/auth');
 const assetRoutes = require('./routes/assets');
 const certAuthRoutes = require('./routes/certAuth');
+const blockExplorerRoutes = require('./routes/blockExplorer');
 
 const { errorHandler, notFoundHandler, requestLogger } = require('./middleware/errorHandler');
 const config = require('./utils/config');
@@ -96,6 +97,7 @@ try {
 app.use('/api/auth', authRoutes);
 app.use('/api/auth', certAuthRoutes);
 app.use('/api/assets', assetRoutes);
+app.use('/fabric-gateway', blockExplorerRoutes);
 
 // 404 handler
 app.use('*', notFoundHandler);

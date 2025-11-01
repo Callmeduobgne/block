@@ -29,7 +29,7 @@ class WebSocketService {
       return;
     }
 
-    this.socket = io(process.env.REACT_APP_WS_URL || 'ws://localhost:4000', {
+    this.socket = io(process.env.REACT_APP_WS_URL || 'ws://localhost:4000/ws', {
       auth: {
         token: token,
       },
@@ -37,15 +37,15 @@ class WebSocketService {
     });
 
     this.socket.on('connect', () => {
-      console.log('WebSocket connected');
+      // WebSocket connected successfully
     });
 
     this.socket.on('disconnect', () => {
-      console.log('WebSocket disconnected');
+      // WebSocket disconnected
     });
 
     this.socket.on('error', (error) => {
-      console.error('WebSocket error:', error);
+      // Handle WebSocket errors appropriately
     });
 
     // Listen for deployment updates

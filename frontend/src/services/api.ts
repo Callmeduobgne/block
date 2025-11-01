@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 
 class ApiClient {
   private client: AxiosInstance;
+  private blockchainClient: AxiosInstance;
 
   constructor() {
     this.client = axios.create({
@@ -13,17 +14,36 @@ class ApiClient {
       },
     });
 
+    // Separate client for blockchain explorer (via API Gateway)
+    this.blockchainClient = axios.create({
+      baseURL: process.env.REACT_APP_API_GATEWAY_URL || 'http://localhost:8080',
+      timeout: 30000,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
     this.setupInterceptors();
   }
 
   private setupInterceptors() {
-    // Request interceptor to add auth token
+    // Request interceptor to add auth token for main client
     this.client.interceptors.request.use(
       (config) => {
         const token = localStorage.getItem('access_token');
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
+        return config;
+      },
+      (error) => {
+        return Promise.reject(error);
+      }
+    );
+
+    // Request interceptor for blockchain client (no auth needed for demo)
+    this.blockchainClient.interceptors.request.use(
+      (config) => {
         return config;
       },
       (error) => {
@@ -52,10 +72,10 @@ class ApiClient {
               return this.client(originalRequest);
             }
           } catch (refreshError) {
-            // Refresh failed, redirect to login
+            // Refresh failed, clear tokens and prevent further retries
             localStorage.removeItem('access_token');
             localStorage.removeItem('refresh_token');
-            window.location.href = '/login';
+            originalRequest._retry = true; // Prevent infinite retry
             return Promise.reject(refreshError);
           }
         }
@@ -127,15 +147,15 @@ class ApiClient {
 
   // Deployment endpoints
   async deployChaincode(data: any) {
-    return this.client.post('/deploy/deploy', data);
+    return this.client.post('/deployments/deploy', data);
   }
 
   async invokeChaincode(data: any) {
-    return this.client.post('/deploy/invoke', data);
+    return this.client.post('/deployments/invoke', data);
   }
 
   async queryChaincode(data: any) {
-    return this.client.post('/deploy/query', data);
+    return this.client.post('/deployments/query', data);
   }
 
   async getDeployments(params?: {
@@ -144,11 +164,46 @@ class ApiClient {
     status?: string;
     deployed_by?: string;
   }) {
-    return this.client.get('/deploy', { params });
+    return this.client.get('/deployments', { params });
   }
 
   async getDeployment(id: string) {
-    return this.client.get(`/deploy/${id}`);
+    return this.client.get(`/deployments/${id}`);
+  }
+
+  // Blockchain Explorer endpoints
+  async getLedgerInfo() {
+    return this.blockchainClient.get('/fabric-gateway/ledger/info');
+  }
+
+  async getLatestBlocks(count: number = 10, channel?: string) {
+    return this.blockchainClient.get('/fabric-gateway/blocks/latest', {
+      params: { count, channel }
+    });
+  }
+
+  async getBlockByNumber(blockNumber: number, channel?: string) {
+    return this.blockchainClient.get(`/fabric-gateway/blocks/${blockNumber}`, {
+      params: { channel }
+    });
+  }
+
+  async getBlockByHash(blockHash: string, channel?: string) {
+    return this.blockchainClient.get(`/fabric-gateway/blocks/hash/${blockHash}`, {
+      params: { channel }
+    });
+  }
+
+  // Get transaction details
+  async getTransactionDetails(txId: string) {
+    return this.blockchainClient.get(`/fabric-gateway/transactions/${txId}`);
+  }
+
+  // Get raw block JSON
+  async getRawBlockJson(blockNumber: number) {
+    return this.blockchainClient.get(`/fabric-gateway/blocks/${blockNumber}/raw`, {
+      responseType: 'text'
+    });
   }
 
   // User management endpoints
@@ -173,6 +228,16 @@ class ApiClient {
     return this.client.delete(`/users/${id}`);
   }
 
+  // Certificate management
+  async getUserCertificate(userId: string) {
+    return this.client.get(`/certificates/user/${userId}`);
+  }
+
+  // Retry enrollment for a user (Admin only)
+  async retryUserEnrollment(userId: string) {
+    return this.client.post(`/users/${userId}/retry-enrollment`);
+  }
+
   // Audit logs
   async getAuditLogs(params?: {
     skip?: number;
@@ -184,6 +249,62 @@ class ApiClient {
     end_date?: string;
   }) {
     return this.client.get('/audit/logs', { params });
+  }
+
+  // Channel management
+  async getChannels(params?: {
+    skip?: number;
+    limit?: number;
+  }) {
+    return this.client.get('/channels', { params });
+  }
+
+  async getChannelStats() {
+    return this.client.get('/channels/stats');
+  }
+
+  async getChannelById(id: string) {
+    return this.client.get(`/channels/${id}`);
+  }
+
+  async createChannel(data: any) {
+    return this.client.post('/channels', data);
+  }
+
+  async updateChannel(id: string, data: any) {
+    return this.client.put(`/channels/${id}`, data);
+  }
+
+  async deleteChannel(id: string) {
+    return this.client.delete(`/channels/${id}`);
+  }
+
+  // Project management
+  async getProjects(params?: {
+    skip?: number;
+    limit?: number;
+  }) {
+    return this.client.get('/projects', { params });
+  }
+
+  async getProjectStats() {
+    return this.client.get('/projects/stats');
+  }
+
+  async getProjectById(id: string) {
+    return this.client.get(`/projects/${id}`);
+  }
+
+  async createProject(data: any) {
+    return this.client.post('/projects', data);
+  }
+
+  async updateProject(id: string, data: any) {
+    return this.client.put(`/projects/${id}`, data);
+  }
+
+  async deleteProject(id: string) {
+    return this.client.delete(`/projects/${id}`);
   }
 
   // Generic methods

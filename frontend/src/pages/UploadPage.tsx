@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useMutation, useQueryClient } from 'react-query';
 import { Upload, FileText, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
@@ -14,6 +14,17 @@ interface ChaincodeUploadData {
   language: string;
 }
 
+const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode.apply(null, Array.from(chunk));
+  }
+  return window.btoa(binary);
+};
+
 const UploadPage: React.FC = () => {
   const [formData, setFormData] = useState<ChaincodeUploadData>({
     name: '',
@@ -23,6 +34,8 @@ const UploadPage: React.FC = () => {
     language: 'golang',
   });
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [isPackageFile, setIsPackageFile] = useState<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isValidating, setIsValidating] = useState(false);
   const [validationResult, setValidationResult] = useState<any>(null);
   const queryClient = useQueryClient();
@@ -54,34 +67,59 @@ const UploadPage: React.FC = () => {
     const file = acceptedFiles[0];
     if (file) {
       setUploadedFile(file);
+      const lowerName = file.name.toLowerCase();
+      const isPkg = lowerName.endsWith('.tgz') || lowerName.endsWith('.tar.gz') || lowerName.endsWith('.zip');
+      setIsPackageFile(isPkg);
       
       // Auto-fill name from filename
       const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
       setFormData(prev => ({
         ...prev,
         name: nameWithoutExt,
+        language: isPkg ? prev.language : prev.language,
       }));
 
-      // Read file content
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const content = e.target?.result as string;
-        setFormData(prev => ({
-          ...prev,
-          source_code: content,
-        }));
-      };
-      reader.readAsText(file);
+      // Read file content (text for source files; for package, set a placeholder)
+      if (isPkg) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const buffer = e.target?.result as ArrayBuffer;
+          if (!buffer) return;
+          const base64String = arrayBufferToBase64(buffer);
+          setFormData(prev => ({
+            ...prev,
+            source_code: `ARCHIVE_TGZ:${base64String}`,
+            language: prev.language === 'golang' ? 'typescript' : prev.language,
+          }));
+        };
+        reader.readAsArrayBuffer(file);
+      } else {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const content = e.target?.result as string;
+          setFormData(prev => ({
+            ...prev,
+            source_code: content,
+          }));
+        };
+        reader.readAsText(file);
+      }
     }
   }, []);
 
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      onDrop([file]);
+    }
+  }, [onDrop]);
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: {
-      'text/plain': ['.go', '.js', '.java'],
-      'application/zip': ['.zip'],
-    },
+    // Cho phép mọi loại file; tự kiểm tra ở onDrop để nhận dạng package/source
     maxFiles: 1,
+    noClick: true,
+    noKeyboard: true,
   });
 
   const validateChaincode = async () => {
@@ -95,7 +133,7 @@ const UploadPage: React.FC = () => {
       // Simulate validation - in real implementation, this would call backend validation
       await new Promise(resolve => setTimeout(resolve, 2000));
       
-      const isValid = formData.source_code.length > 100; // Simple validation
+      const isValid = isPackageFile ? true : (formData.source_code.length > 100);
       setValidationResult({
         is_valid: isValid,
         errors: isValid ? [] : ['Source code quá ngắn'],
@@ -164,8 +202,23 @@ const UploadPage: React.FC = () => {
                   : 'Kéo thả file hoặc click để chọn'}
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                Hỗ trợ: .go, .js, .java, .zip
+                Hỗ trợ: .go, .js, .java, .zip, .tgz, .tar.gz
               </p>
+              <div className="mt-3">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  style={{ display: 'none' }}
+                  onChange={handleFileSelect}
+                />
+                <button
+                  type="button"
+                  className="btn-outline"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  Chọn file từ máy
+                </button>
+              </div>
             </div>
           </div>
 
@@ -226,6 +279,7 @@ const UploadPage: React.FC = () => {
               >
                 <option value="golang">Go</option>
                 <option value="javascript">JavaScript</option>
+                <option value="typescript">TypeScript</option>
                 <option value="java">Java</option>
               </select>
             </div>

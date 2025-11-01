@@ -10,7 +10,9 @@ import {
   Mail,
   Calendar,
   UserCheck,
-  UserX
+  UserX,
+  Key,
+  FileText
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
@@ -22,6 +24,9 @@ import { useAuth } from '../hooks/useAuth';
 const UserManagement: React.FC = () => {
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [showCertificate, setShowCertificate] = useState(false);
+  const [certificateData, setCertificateData] = useState<any>(null);
+  const [certUserId, setCertUserId] = useState<string | null>(null);
   const [newUser, setNewUser] = useState({
     username: '',
     email: '',
@@ -82,6 +87,37 @@ const UserManagement: React.FC = () => {
       onError: (error: any) => {
         toast.error(error.response?.data?.detail || 'Xóa user thất bại');
       },
+    }
+  );
+
+  const handleViewCertificate = async (userId: string) => {
+    try {
+      setCertUserId(userId);
+      const response = await apiClient.getUserCertificate(userId);
+      setCertificateData(response.data);
+      setShowCertificate(true);
+    } catch (error: any) {
+      toast.error(error.response?.data?.detail || 'Không thể lấy thông tin certificate');
+    }
+  };
+
+  const enrollMutation = useMutation(
+    async () => {
+      if (!certUserId) throw new Error('Missing user id');
+      return apiClient.retryUserEnrollment(certUserId);
+    },
+    {
+      onSuccess: async () => {
+        toast.success('Enroll thành công!');
+        queryClient.invalidateQueries('users');
+        if (certUserId) {
+          const refreshed = await apiClient.getUserCertificate(certUserId);
+          setCertificateData(refreshed.data);
+        }
+      },
+      onError: (error: any) => {
+        toast.error(error.response?.data?.detail || 'Enroll thất bại');
+      }
     }
   );
 
@@ -312,6 +348,14 @@ const UserManagement: React.FC = () => {
                         >
                           <Edit className="h-4 w-4 mr-1" />
                           Sửa
+                        </button>
+                        <button
+                          onClick={() => handleViewCertificate(user.id)}
+                          className="btn-outline text-sm"
+                          title="Xem Certificate"
+                        >
+                          <FileText className="h-4 w-4 mr-1" />
+                          Cert
                         </button>
                         <button
                           onClick={() => handleDeleteUser(user.id)}
@@ -581,6 +625,149 @@ const UserManagement: React.FC = () => {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Certificate Modal */}
+      {showCertificate && certificateData && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">
+                  Certificate Information - {certificateData.username}
+                </h2>
+                <button
+                  onClick={() => {
+                    setShowCertificate(false);
+                    setCertificateData(null);
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <UserX className="h-6 w-6" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                {/* Basic Info */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Certificate ID
+                    </label>
+                    <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded">
+                      {certificateData.certificate_id || 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      MSP ID
+                    </label>
+                    <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded">
+                      {certificateData.msp_id || 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Organization
+                    </label>
+                    <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded">
+                      {certificateData.organization || 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Has Certificate
+                    </label>
+                    <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded">
+                      {certificateData.has_certificate ? 'Yes' : 'No'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Certificate PEM */}
+                {certificateData.certificate_pem && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <FileText className="h-4 w-4 inline mr-1" />
+                      Certificate (PEM)
+                    </label>
+                    <textarea
+                      readOnly
+                      value={certificateData.certificate_pem}
+                      className="w-full h-32 p-3 text-xs font-mono bg-gray-50 border rounded resize-none"
+                      placeholder="Certificate will appear here..."
+                    />
+                  </div>
+                )}
+
+                {/* Public Key PEM */}
+                {certificateData.public_key_pem && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <Key className="h-4 w-4 inline mr-1" />
+                      Public Key (PEM)
+                    </label>
+                    <textarea
+                      readOnly
+                      value={certificateData.public_key_pem}
+                      className="w-full h-32 p-3 text-xs font-mono bg-gray-50 border rounded resize-none"
+                      placeholder="Public key will appear here..."
+                    />
+                  </div>
+                )}
+
+                {/* Private Key PEM */}
+                {certificateData.private_key_pem && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <Key className="h-4 w-4 inline mr-1" />
+                      Private Key (PEM) - ⚠️ Sensitive Information
+                    </label>
+                    <textarea
+                      readOnly
+                      value={certificateData.private_key_pem}
+                      className="w-full h-32 p-3 text-xs font-mono bg-red-50 border border-red-200 rounded resize-none"
+                      placeholder="Private key will appear here..."
+                    />
+                    <p className="text-xs text-red-600 mt-1">
+                      ⚠️ Private key is sensitive information. Keep it secure!
+                    </p>
+                  </div>
+                )}
+
+                {/* No Certificate Message + Enroll Action */}
+                {!certificateData.has_certificate && (
+                  <div className="text-center py-8">
+                    <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-500 mb-2">User chưa có certificate</p>
+                    <p className="text-sm text-gray-400 mb-4">
+                      User cần được enroll với Fabric CA để có certificate
+                    </p>
+                    <button
+                      onClick={() => enrollMutation.mutate()}
+                      disabled={enrollMutation.isLoading}
+                      className="btn-primary"
+                    >
+                      {enrollMutation.isLoading ? 'Đang enroll...' : 'Enroll'}
+                    </button>
+                  </div>
+                )}
+
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => {
+                      setShowCertificate(false);
+                      setCertificateData(null);
+                    }}
+                    className="btn-outline"
+                  >
+                    Đóng
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

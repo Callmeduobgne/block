@@ -36,11 +36,12 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         try {
           // Verify token and get user info
           const response = await apiClient.get('/auth/me');
-          setUser(response.data);
+          setUser(response.data as User);
         } catch (error) {
           // Token is invalid, clear it
           localStorage.removeItem('access_token');
           localStorage.removeItem('refresh_token');
+          setUser(null);
         }
       }
       setIsLoading(false);
@@ -59,7 +60,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       
       // Get user info
       const userResponse = await apiClient.get('/auth/me');
-      setUser(userResponse.data);
+      setUser(userResponse.data as User);
     } catch (error) {
       throw error;
     }

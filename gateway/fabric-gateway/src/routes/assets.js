@@ -175,6 +175,62 @@ router.get('/ledger/info', async (req, res) => {
   }
 });
 
+// Get latest blocks
+router.get('/blocks/latest', async (req, res) => {
+  try {
+    const { count = 10, channel } = req.query;
+    const blocks = await fabricConnection.getLatestBlocks(parseInt(count), channel);
+    res.json({
+      success: true,
+      data: blocks
+    });
+  } catch (error) {
+    logger.error('Get latest blocks error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get block by number
+router.get('/blocks/:blockNumber', async (req, res) => {
+  try {
+    const { blockNumber } = req.params;
+    const { channel } = req.query;
+    const block = await fabricConnection.getBlockByNumber(parseInt(blockNumber), channel);
+    res.json({
+      success: true,
+      data: block
+    });
+  } catch (error) {
+    logger.error(`Get block ${req.params.blockNumber} error:`, error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get block by hash
+router.get('/blocks/hash/:blockHash', async (req, res) => {
+  try {
+    const { blockHash } = req.params;
+    const { channel } = req.query;
+    const block = await fabricConnection.getBlockByHash(blockHash, channel);
+    res.json({
+      success: true,
+      data: block
+    });
+  } catch (error) {
+    logger.error(`Get block by hash ${req.params.blockHash} error:`, error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Chaincode info
 router.get('/chaincodes', async (req, res) => {
   try {

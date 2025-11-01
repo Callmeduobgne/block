@@ -8,7 +8,8 @@ ROOT_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
 
 export PATH=${ROOT_DIR}/bin:$PATH
 export FABRIC_CFG_PATH=${ROOT_DIR}/config/
-export CHANNEL_NAME=testchannel
+# Channel name can be overridden via env: CHANNEL_NAME=IBNchannel ./createChannel.sh
+export CHANNEL_NAME=${CHANNEL_NAME:-testchannel}
 
 # Set environment for Org1
 setGlobals() {

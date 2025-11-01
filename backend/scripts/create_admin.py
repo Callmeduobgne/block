@@ -27,7 +27,7 @@ def create_admin_user():
         admin_data = UserCreate(
             username="admin",
             email="admin@blockchain.com",
-            password="admin123",  # Change this in production!
+            password="admin123",  # 8 characters minimum
             role="ADMIN",
             organization="Blockchain Gateway"
         )

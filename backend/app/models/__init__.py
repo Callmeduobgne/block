@@ -6,6 +6,8 @@ from app.models.chaincode import Chaincode, ChaincodeVersion
 from app.models.deployment import Deployment
 from app.models.approval import Approval
 from app.models.audit import AuditLog
+from app.models.channel import Channel
+from app.models.project import Project
 
 __all__ = [
     "User",
@@ -13,5 +15,7 @@ __all__ = [
     "ChaincodeVersion",
     "Deployment",
     "Approval",
-    "AuditLog"
+    "AuditLog",
+    "Channel",
+    "Project"
 ]

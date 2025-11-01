@@ -1,5 +1,9 @@
 version: '3.7'
 
+secrets:
+  fabric_ca_password:
+    file: ../../secrets/fabric_ca_password
+
 networks:
   fabric-network:
     name: fabric-network
@@ -8,6 +12,8 @@ services:
   ca-orderer:
     image: hyperledger/fabric-ca:1.5.9
     container_name: ca-orderer
+    secrets:
+      - fabric_ca_password
     environment:
       - FABRIC_CA_HOME=/etc/hyperledger/fabric-ca-server
       - FABRIC_CA_SERVER_CA_NAME=ca-orderer
@@ -17,7 +23,7 @@ services:
     ports:
       - "7054:7054"
       - "17054:17054"
-    command: sh -c 'fabric-ca-server start -b admin:adminpw -d'
+    command: sh -c 'fabric-ca-server start -b admin:$(cat /run/secrets/fabric_ca_password) -d'
     volumes:
       - ../organizations/fabric-ca/ordererOrg:/etc/hyperledger/fabric-ca-server
     networks:
@@ -26,16 +32,19 @@ services:
   ca-org1:
     image: hyperledger/fabric-ca:1.5.9
     container_name: ca-org1
+    secrets:
+      - fabric_ca_password
     environment:
       - FABRIC_CA_HOME=/etc/hyperledger/fabric-ca-server
       - FABRIC_CA_SERVER_CA_NAME=ca-org1
       - FABRIC_CA_SERVER_TLS_ENABLED=true
       - FABRIC_CA_SERVER_PORT=8054
       - FABRIC_CA_SERVER_OPERATIONS_LISTENADDRESS=0.0.0.0:18054
+      - FABRIC_CA_SERVER_CSR_HOSTS=ca-org1,localhost
     ports:
       - "8054:8054"
       - "18054:18054"
-    command: sh -c 'fabric-ca-server start -b admin:adminpw -d'
+    command: sh -c 'fabric-ca-server start -b admin:$(cat /run/secrets/fabric_ca_password) -d'
     volumes:
       - ../organizations/fabric-ca/org1:/etc/hyperledger/fabric-ca-server
     networks:

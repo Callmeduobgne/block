@@ -19,6 +19,9 @@ class User(Base):
     role = Column(String(20), nullable=False, index=True)  # ADMIN, ORG_ADMIN, USER, VIEWER
     msp_id = Column(String(50), index=True)
     certificate_id = Column(String(255), index=True)
+    certificate_pem = Column(Text)  # Public certificate in PEM format
+    private_key_pem = Column(Text)  # Private key in PEM format (encrypted)
+    public_key_pem = Column(Text)   # Public key in PEM format
     organization = Column(String(100))
     status = Column(String(20), default="active", index=True)  # active, inactive, suspended
     is_active = Column(Boolean, default=True)
@@ -33,6 +36,8 @@ class User(Base):
     deployments = relationship("Deployment", back_populates="deployer")
     approvals = relationship("Approval", back_populates="approver")
     audit_logs = relationship("AuditLog", back_populates="user")
+    created_channels = relationship("Channel", back_populates="creator")
+    created_projects = relationship("Project", back_populates="creator")
     
     def __repr__(self):
         return f"<User(id={self.id}, username={self.username}, role={self.role})>"

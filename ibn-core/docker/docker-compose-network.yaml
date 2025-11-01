@@ -3,6 +3,7 @@ version: '3.7'
 volumes:
   orderer.example.com:
   peer0.org1.example.com:
+  genesis-block:
 
 networks:
   fabric-network:
@@ -43,7 +44,7 @@ services:
     volumes:
       - ../organizations/ordererOrganizations/example.com/orderers/orderer.example.com/msp:/var/hyperledger/orderer/msp
       - ../organizations/ordererOrganizations/example.com/orderers/orderer.example.com/tls:/var/hyperledger/orderer/tls
-      - ../channel-artifacts/genesis.block:/var/hyperledger/orderer/orderer.genesis.block
+      - ../system-genesis-block/genesis.block:/var/hyperledger/orderer/orderer.genesis.block
       - orderer.example.com:/var/hyperledger/production/orderer
     ports:
       - "7050:7050"

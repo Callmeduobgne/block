@@ -8,13 +8,15 @@ const router = express.Router();
 // Package chaincode
 router.post('/package', async (req, res) => {
   try {
-    const { chaincodeName, version, path: sourcePath, outputPath } = req.body;
+    // Support both 'path' and 'sourcePath' for compatibility
+    const { chaincodeName, version, path, sourcePath, outputPath } = req.body;
+    const finalSourcePath = sourcePath || path;
     
     // Validation
-    if (!chaincodeName || !version || !sourcePath) {
+    if (!chaincodeName || !version || !finalSourcePath) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required fields: chaincodeName, version, path',
+        error: 'Missing required fields: chaincodeName, version, path (or sourcePath)',
         timestamp: new Date().toISOString()
       });
     }
@@ -22,7 +24,7 @@ router.post('/package', async (req, res) => {
     const result = await chaincodeLifecycleService.packageChaincode({
       chaincodeName,
       version,
-      path: sourcePath,
+      path: finalSourcePath,
       outputPath
     });
     

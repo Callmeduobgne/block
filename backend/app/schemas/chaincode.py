@@ -35,6 +35,7 @@ class ChaincodeDeploy(BaseModel):
     chaincode_id: UUID
     channel_name: str
     target_peers: List[str]
+    sequence: Optional[int] = 1
     
     @validator('target_peers')
     def validate_target_peers(cls, v):
@@ -47,14 +48,14 @@ class ChaincodeInvoke(BaseModel):
     chaincode_id: UUID
     function_name: str
     args: List[str]
-    channel_name: Optional[str] = "mychannel"
+    channel_name: Optional[str] = "ibnchannel"
 
 
 class ChaincodeQuery(BaseModel):
     chaincode_id: UUID
     function_name: str
     args: List[str]
-    channel_name: Optional[str] = "mychannel"
+    channel_name: Optional[str] = "ibnchannel"
 
 
 class ChaincodeUpdate(BaseModel):

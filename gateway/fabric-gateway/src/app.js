@@ -5,6 +5,7 @@ const compression = require('compression');
 
 const assetRoutes = require('./routes/assets');
 const chaincodeRoutes = require('./routes/chaincode');
+const blockchainInfoRoutes = require('./routes/blockchainInfo');
 const fabricConnection = require('./services/fabricConnection');
 
 const config = require('./utils/config');
@@ -86,6 +87,7 @@ app.get('/health', async (req, res) => {
 // Routes
 app.use('/', assetRoutes);
 app.use('/api/chaincode', chaincodeRoutes);
+app.use('/api/blockchain', blockchainInfoRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

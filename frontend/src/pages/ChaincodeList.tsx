@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery } from 'react-query';
+import { useNavigate } from 'react-router-dom';
 import { 
   FileText, 
   Search, 
@@ -19,6 +20,10 @@ const ChaincodeList: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [selectedChaincode, setSelectedChaincode] = useState<any>(null);
+  const [channelName, setChannelName] = useState<string>('mychannel');
+  const [targetPeersText, setTargetPeersText] = useState<string>('');
+  const [deployLoading, setDeployLoading] = useState<boolean>(false);
+  const navigate = useNavigate();
 
   const { data: chaincodesData, isLoading } = useQuery(
     ['chaincodes', statusFilter],
@@ -306,6 +311,18 @@ const ChaincodeList: React.FC = () => {
                 </div>
                 
                 <div className="flex justify-end">
+                  {selectedChaincode.status === 'approved' && (
+                    <button
+                      onClick={async () => {
+                        // Open simple inline deploy form by toggling default values
+                        if (!channelName) setChannelName('mychannel');
+                        if (!targetPeersText) setTargetPeersText('peer0.org1.example.com:7051');
+                      }}
+                      className="btn mr-2"
+                    >
+                      Triển khai
+                    </button>
+                  )}
                   <button
                     onClick={() => setSelectedChaincode(null)}
                     className="btn-outline"
@@ -313,6 +330,62 @@ const ChaincodeList: React.FC = () => {
                     Đóng
                   </button>
                 </div>
+
+                {selectedChaincode.status === 'approved' && (
+                  <div className="mt-6 p-4 border rounded-md bg-gray-50">
+                    <h4 className="text-sm font-medium text-gray-900 mb-3">Thực hiện triển khai</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="label">Channel Name</label>
+                        <input
+                          className="input"
+                          placeholder="mychannel"
+                          value={channelName}
+                          onChange={(e) => setChannelName(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Target Peers (phân tách bằng dấu phẩy)</label>
+                        <input
+                          className="input"
+                          placeholder="peer0.org1.example.com:7051,peer0.org2.example.com:9051"
+                          value={targetPeersText}
+                          onChange={(e) => setTargetPeersText(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                      <button
+                        className="btn"
+                        disabled={deployLoading}
+                        onClick={async () => {
+                          if (!channelName || !targetPeersText) return;
+                          const target_peers = targetPeersText
+                            .split(',')
+                            .map((s) => s.trim())
+                            .filter((s) => s.length > 0);
+                          if (target_peers.length === 0) return;
+                          setDeployLoading(true);
+                          try {
+                            await apiClient.deployChaincode({
+                              chaincode_id: selectedChaincode.id,
+                              channel_name: channelName,
+                              target_peers,
+                            });
+                            // Điều hướng sang trang theo dõi triển khai
+                            navigate('/deployments');
+                          } catch (e) {
+                            // lỗi đã được hiển thị bởi interceptor
+                          } finally {
+                            setDeployLoading(false);
+                          }
+                        }}
+                      >
+                        {deployLoading ? 'Đang triển khai...' : 'Xác nhận triển khai'}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

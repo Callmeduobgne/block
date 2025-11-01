@@ -10,6 +10,8 @@ INSERT INTO users (
     msp_id,
     organization,
     status,
+    is_active,
+    is_verified,
     created_at,
     updated_at
 ) VALUES (
@@ -17,11 +19,13 @@ INSERT INTO users (
     'admin',
     'admin@ibn.com',
     -- Password: admin123 (hashed with bcrypt)
-    '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5NU7LHHHwKYaa',
+    '$2b$12$r45yDWkvwo/YVBRdWcd98OdR4S0OwYTrrF7G2CW4fz98qHXqiYZ62',
     'ADMIN',
     'Org1MSP',
     'IBN Blockchain',
     'active',
+    true,
+    true,
     NOW(),
     NOW()
 );

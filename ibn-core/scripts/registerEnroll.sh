@@ -9,13 +9,19 @@ ROOT_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
 export PATH=${ROOT_DIR}/bin:$PATH
 export FABRIC_CFG_PATH=${ROOT_DIR}/config
 
+# Read Fabric CA admin password from secret file
+FABRIC_CA_ADMIN_PASSWORD="adminpw"
+if [ -f "${ROOT_DIR}/../secrets/fabric_ca_password" ]; then
+  FABRIC_CA_ADMIN_PASSWORD=$(cat "${ROOT_DIR}/../secrets/fabric_ca_password")
+fi
+
 function createOrdererOrg() {
   echo "Enrolling the CA admin for Orderer Org"
   mkdir -p "${ROOT_DIR}/organizations/ordererOrganizations/example.com"
 
   export FABRIC_CA_CLIENT_HOME=${ROOT_DIR}/organizations/ordererOrganizations/example.com
 
-  fabric-ca-client enroll -u https://admin:adminpw@localhost:7054 --caname ca-orderer --tls.certfiles "${ROOT_DIR}/organizations/fabric-ca/ordererOrg/ca-cert.pem"
+  fabric-ca-client enroll -u https://admin:${FABRIC_CA_ADMIN_PASSWORD}@localhost:7054 --caname ca-orderer --tls.certfiles "${ROOT_DIR}/organizations/fabric-ca/ordererOrg/ca-cert.pem"
 
   echo 'NodeOUs:
   Enable: true
@@ -73,7 +79,7 @@ function createOrg1() {
 
   export FABRIC_CA_CLIENT_HOME=${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/
 
-  fabric-ca-client enroll -u https://admin:adminpw@localhost:8054 --caname ca-org1 --tls.certfiles "${ROOT_DIR}/organizations/fabric-ca/org1/ca-cert.pem"
+  fabric-ca-client enroll -u https://admin:${FABRIC_CA_ADMIN_PASSWORD}@localhost:8054 --caname ca-org1 --tls.certfiles "${ROOT_DIR}/organizations/fabric-ca/org1/ca-cert.pem"
 
   echo 'NodeOUs:
   Enable: true

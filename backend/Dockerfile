@@ -16,7 +16,18 @@ RUN apt-get update \
         libpq-dev \
         curl \
         git \
+        wget \
+        ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Hyperledger Fabric CA Client
+ARG FABRIC_CA_VERSION=1.5.9
+RUN wget https://github.com/hyperledger/fabric-ca/releases/download/v${FABRIC_CA_VERSION}/hyperledger-fabric-ca-linux-amd64-${FABRIC_CA_VERSION}.tar.gz \
+    && tar -xzf hyperledger-fabric-ca-linux-amd64-${FABRIC_CA_VERSION}.tar.gz \
+    && mv bin/fabric-ca-client /usr/local/bin/ \
+    && chmod +x /usr/local/bin/fabric-ca-client \
+    && rm -rf bin hyperledger-fabric-ca-linux-amd64-${FABRIC_CA_VERSION}.tar.gz \
+    && fabric-ca-client version
 
 # Install Python dependencies
 COPY requirements.txt .

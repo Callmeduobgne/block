@@ -1,167 +1,336 @@
-# Blockchain Gateway - Full Stack System
+# Blockchain Gateway
 
-Hệ thống Blockchain Gateway hoàn chỉnh với các thành phần:
+Hệ thống quản lý vòng đời chaincode blockchain với giao diện web hiện đại và API RESTful.
 
-- **Backend API** (Python/FastAPI)
-- **Frontend** (React/TypeScript)
-- **API Gateway** (Node.js)
-- **Fabric Gateway** (Node.js)
-- **PostgreSQL Database**
-- **Redis Cache**
-- **Hyperledger Fabric Integration**
+## 🏗️ Kiến trúc hệ thống
+
+```
+┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+│   Frontend      │◄────►│     Nginx       │◄────►│   Backend API   │
+│   (React/Nginx) │      │ (Reverse Proxy) │      │    (FastAPI)    │
+└─────────────────┘      └─────────────────┘      └─────────────────┘
+                                                    │
+                       ┌─────────────────┐         │
+                       │  Fabric Gateway │◄────────┘
+                       │    (Node.js)    │
+                       └─────────────────┘
+                                 │
+                       ┌─────────────────┐
+                       │  Hyperledger    │
+                       │     Fabric      │
+                       └─────────────────┘
+```
 
 ## 🚀 Tính năng chính
 
-- Quản lý người dùng và xác thực
-- Quản lý chaincode và deployment
-- API Gateway với load balancing
-- Tích hợp Hyperledger Fabric
-- WebSocket real-time communication
-- Docker containerization
+- **Quản lý Chaincode**: Upload, validate, approve và deploy chaincode
+- **RBAC**: Phân quyền người dùng với các role khác nhau
+- **Audit Logging**: Theo dõi và ghi log tất cả hoạt động
+- **Real-time Monitoring**: Giám sát deployment và status
+- **Certificate Management**: Quản lý certificates từ Fabric CA
+- **Web Interface**: Giao diện web hiện đại với React + Tailwind CSS
 
 ## 📋 Yêu cầu hệ thống
 
-- Docker Desktop
-- WSL 2 (Ubuntu)
-- Node.js 18+
-- Python 3.9+
-- PostgreSQL 15+
-- Redis 7+
+- **Python**: 3.8+
+- **Node.js**: 18+
+- **PostgreSQL**: 13+
+- **Redis**: 6+
+- **Docker**: 20+ (tùy chọn)
+- **Docker Compose**: 2+ (tùy chọn)
 
-## 🛠️ Cài đặt và chạy
+## 🛠️ Cài đặt
 
-### 1. Clone repository
-```bash
-git clone git@github.com:Callmeduobgne/ictublockchainsanbbox.git
-cd ictublockchainsanbbox
-```
-
-### 2. Chạy với Docker Compose
-```bash
-# Khởi động tất cả services
-./ibn.sh start
-
-# Hoặc sử dụng script WSL
-./run-in-wsl.sh start
-```
-
-### 3. Truy cập ứng dụng
-- **Frontend:** http://localhost:3000
-- **Backend API:** http://localhost:4000
-- **API Gateway:** http://localhost:8080
-- **Fabric Gateway:** http://localhost:8081
-
-## 📁 Cấu trúc dự án
-
-```
-├── backend/           # Python FastAPI Backend
-├── frontend/          # React TypeScript Frontend
-├── gateway/           # API và Fabric Gateways
-├── ibn-core/          # Hyperledger Fabric Core
-├── docs/              # Documentation
-├── docker-compose.yml # Docker services
-├── ibn.sh            # Main deployment script
-└── run-in-wsl.sh     # WSL deployment script
-```
-
-## 🔧 Scripts có sẵn
+### Phương pháp 1: Sử dụng script tự động
 
 ```bash
-# Khởi động services
-./ibn.sh start
+# Chạy script setup tự động
+./setup.sh
+```
 
-# Dừng services
-./ibn.sh stop
+### Phương pháp 2: Cài đặt thủ công
 
-# Khởi động lại
-./ibn.sh restart
+#### 1. Clone repository
+```bash
+git clone <repository-url>
+cd blockchain-gateway
+```
+
+#### 2. Cấu hình môi trường
+```bash
+# Copy file cấu hình
+cp env.example .env
+
+# Chỉnh sửa các giá trị trong .env
+nano .env
+```
+
+#### 3. Cài đặt Backend
+```bash
+cd backend
+
+# Tạo virtual environment
+python3 -m venv venv
+source venv/bin/activate  # Linux/Mac
+# hoặc
+venv\Scripts\activate     # Windows
+
+# Cài đặt dependencies
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+```
+
+#### 4. Cài đặt Frontend
+```bash
+cd frontend
+npm install
+```
+
+#### 5. Cài đặt Gateway Services
+```bash
+# API Gateway
+cd gateway/api-gateway
+npm install
+
+# Fabric Gateway
+cd ../fabric-gateway
+npm install
+```
+
+#### 6. Khởi tạo Database
+```bash
+cd backend
+source venv/bin/activate
+python scripts/init_db.py
+```
+
+## 🚀 Chạy ứng dụng
+
+### Development Mode
+
+#### Chạy từng service riêng lẻ:
+
+```bash
+# Terminal 1: Backend API
+cd backend
+source venv/bin/activate
+uvicorn app.main:app --reload --port 4000
+
+# Terminal 2: Frontend
+cd frontend
+npm start
+
+# Terminal 3: API Gateway
+cd gateway/api-gateway
+npm run dev
+
+# Terminal 4: Fabric Gateway
+cd gateway/fabric-gateway
+npm run dev
+```
+
+#### Chạy với Docker Compose:
+
+```bash
+# Chạy toàn bộ stack
+docker compose up
+
+# Chạy ở background
+docker compose up -d
 
 # Xem logs
-./ibn.sh logs
-
-# Kiểm tra trạng thái
-./ibn.sh status
-
-# Dọn dẹp
-./ibn.sh cleanup
+docker compose logs -f
 ```
 
-## 🌐 API Endpoints
+### Production Mode (Single docker-compose.yml)
 
-### Authentication
-- `POST /api/v1/auth/login` - Đăng nhập
-- `POST /api/v1/auth/register` - Đăng ký
-- `POST /api/v1/auth/refresh` - Refresh token
+1) Tạo Docker Secrets (chỉ chạy 1 lần):
+```bash
+echo "<postgres_password>" | docker secret create postgres_password -
+echo "<redis_password>"    | docker secret create redis_password -
+echo "<jwt_secret>"        | docker secret create jwt_secret -
+echo "<fabric_ca_pw>"      | docker secret create fabric_ca_password -
+```
 
-### Chaincode Management
-- `GET /api/v1/chaincodes` - Danh sách chaincode
-- `POST /api/v1/chaincodes` - Tạo chaincode mới
-- `PUT /api/v1/chaincodes/{id}` - Cập nhật chaincode
-- `DELETE /api/v1/chaincodes/{id}` - Xóa chaincode
+2) Tạo mạng Fabric (nếu chưa có):
+```bash
+docker network create fabric-network || true
+```
 
-### Deployment
-- `GET /api/v1/deployments` - Danh sách deployment
-- `POST /api/v1/deployments` - Tạo deployment mới
-- `PUT /api/v1/deployments/{id}` - Cập nhật deployment
+3) Khởi động services:
+```bash
+docker compose down --remove-orphans
+docker compose build --no-cache
+docker compose up -d
+```
 
-## 🔐 Environment Variables
+4) Kiểm tra health:
+```bash
+docker compose ps
+curl -f http://localhost/ || true  # qua Nginx
+```
 
-Tạo file `.env` từ `.env.example` và cấu hình:
+### Start Core then App (Quy trình khởi động chuẩn)
+
+1) Khởi động Blockchain Core (Fabric):
+```bash
+docker compose -f ibn-core/docker/docker-compose-ca.yaml up -d
+docker compose -f ibn-core/docker/docker-compose-network.yaml up -d
+```
+
+2) Tạo mạng external (nếu chưa có):
+```bash
+docker network create fabric-network || true
+```
+
+3) Tạo Docker Secrets (1 lần trên host):
+```bash
+echo "<postgres_password>" | docker secret create postgres_password -
+echo "<redis_password>"    | docker secret create redis_password -
+echo "<jwt_secret>"        | docker secret create jwt_secret -
+echo "<fabric_ca_pw>"      | docker secret create fabric_ca_password -
+```
+
+4) Khởi động App Stack (FE+BE+DB+Redis+Nginx+Fabric-Gateway):
+```bash
+docker compose down --remove-orphans
+docker compose build --no-cache
+docker compose up -d
+```
+
+5) Kiểm tra nhanh:
+```bash
+docker compose ps
+curl -f http://localhost/ || true
+```
+
+## 📊 Truy cập các dịch vụ
+
+- **Frontend qua Nginx**: http://localhost/
+- **Backend API**: nội bộ (không expose cổng); API docs truy cập qua proxy nếu cấu hình Nginx
+- **Fabric Gateway**: nội bộ (không expose cổng)
+
+## 🔧 Cấu hình
+
+### Environment Variables
+
+Các biến môi trường quan trọng (tham khảo `env.example`):
 
 ```bash
-# Database
-DATABASE_URL=postgresql://gateway_user:gateway_password@postgres:5432/blockchain_gateway
+# Backend
+DATABASE_URL=postgresql://gateway_user:<PASSWORD>@postgres:5432/blockchain_gateway
+REDIS_URL=redis://:<PASSWORD>@redis:6379
+SECRET_KEY=<JWT_SECRET>
+FABRIC_GATEWAY_URL=http://fabric-gateway:3001
+UPLOAD_DIRECTORY=/uploads
 
-# Redis
-REDIS_URL=redis://redis:6379
-
-# JWT
-SECRET_KEY=your-secret-key-change-in-production
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-REFRESH_TOKEN_EXPIRE_DAYS=7
-
-# Fabric
+# Fabric Gateway
+FABRIC_MSP_ID=Org1MSP
+FABRIC_IDENTITY=User1@org1.example.com
+FABRIC_CHANNEL_NAME=testchannel
 FABRIC_PEER_ENDPOINT=peer0.org1.example.com:7051
-FABRIC_CHANNEL_NAME=mychannel
-FABRIC_CHAINCODE_NAME=basic
+FABRIC_CFG_PATH=/etc/hyperledger/fabric
+PEER_BINARY_PATH=/fabric-bin/peer
 ```
 
-## 🐳 Docker Services
+### Database Configuration
 
-- **postgres:** PostgreSQL database
-- **redis:** Redis cache
-- **backend:** FastAPI backend
-- **frontend:** React frontend
-- **api-gateway:** API Gateway
-- **fabric-gateway:** Fabric Gateway
+```bash
+# PostgreSQL
+POSTGRES_DB=blockchain_gateway
+POSTGRES_USER=gateway_user
+POSTGRES_PASSWORD=gateway_password
+```
 
-## 📚 Documentation
+## 🧪 Testing
 
-- [API Documentation](docs/api-spec.yaml)
-- [Deployment Guide](gateway/docs/deployment-guide.md)
-- [Blockchain Core](docs/v0.0.1/blockchain-core.md)
+```bash
+# Backend tests
+cd backend
+source venv/bin/activate
+pytest
+
+# Frontend tests
+cd frontend
+npm test
+
+# Gateway tests
+cd gateway/api-gateway
+npm test
+
+cd ../fabric-gateway
+npm test
+```
+
+## 📝 API Documentation
+
+API documentation có sẵn tại:
+- **Swagger UI**: http://localhost:4000/api/v1/docs
+- **ReDoc**: http://localhost:4000/api/v1/redoc
+
+## 🔒 Security
+
+- **Authentication**: JWT tokens
+- **Authorization**: Role-based access control (RBAC)
+- **Password Hashing**: bcrypt
+- **CORS**: Cấu hình CORS cho cross-origin requests
+- **Rate Limiting**: Giới hạn số request per IP
+- **Input Validation**: Pydantic models cho validation
+
+## 📈 Monitoring
+
+- **Health Checks**: `/health` endpoint cho mỗi service
+- **Logging**: Structured logging với loguru
+- **Metrics**: Prometheus metrics (tùy chọn)
+- **Audit Trail**: Ghi log tất cả hoạt động quan trọng
+
+## 🐛 Troubleshooting
+
+### Lỗi thường gặp:
+
+1. **Database connection error**:
+   ```bash
+   # Kiểm tra PostgreSQL đang chạy
+   sudo systemctl status postgresql
+   
+   # Kiểm tra connection string trong .env
+   ```
+
+2. **Port already in use**:
+   ```bash
+   # Tìm process đang sử dụng port
+   lsof -i :4000
+   
+   # Kill process
+   kill -9 <PID>
+   ```
+
+3. **Dependencies not found**:
+   ```bash
+   # Reinstall dependencies
+   pip install -r requirements.txt
+   npm install
+   ```
 
 ## 🤝 Contributing
 
 1. Fork repository
-2. Tạo feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to branch (`git push origin feature/AmazingFeature`)
+2. Tạo feature branch: `git checkout -b feature/new-feature`
+3. Commit changes: `git commit -am 'Add new feature'`
+4. Push branch: `git push origin feature/new-feature`
 5. Tạo Pull Request
 
 ## 📄 License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+Dự án này được phân phối dưới giấy phép MIT. Xem file `LICENSE` để biết thêm chi tiết.
 
-## 👥 Authors
+## 📞 Support
 
-- **Callmeduobgne** - *Initial work* - [Callmeduobgne](https://github.com/Callmeduobgne)
+Nếu gặp vấn đề, vui lòng:
+1. Kiểm tra phần Troubleshooting
+2. Tạo issue trên GitHub
+3. Liên hệ team phát triển
 
-## 🙏 Acknowledgments
+---
 
-- Hyperledger Fabric
-- FastAPI
-- React
-- Docker
-- PostgreSQL
-- Redis
+**Lưu ý**: Đây là phiên bản development. Để deploy production, vui lòng cập nhật các cấu hình security và environment variables phù hợp.

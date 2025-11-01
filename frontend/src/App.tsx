@@ -11,6 +11,8 @@ import TestConsole from './pages/TestConsole';
 import ChaincodeList from './pages/ChaincodeList';
 import UserManagement from './pages/UserManagement';
 import AuditLogs from './pages/AuditLogs';
+import BlockExplorer from './pages/BlockExplorer';
+import ChannelManager from './pages/ChannelManager';
 import LoadingSpinner from './components/LoadingSpinner';
 
 function App() {
@@ -43,6 +45,8 @@ function App() {
         <Route path="/approvals" element={<ApprovalDashboard />} />
         <Route path="/deployments" element={<DeploymentMonitor />} />
         <Route path="/test-console" element={<TestConsole />} />
+        <Route path="/channels" element={<ChannelManager />} />
+        <Route path="/block-explorer" element={<BlockExplorer />} />
         <Route path="/users" element={<UserManagement />} />
         <Route path="/audit-logs" element={<AuditLogs />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

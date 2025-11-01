@@ -9,12 +9,15 @@ from app.models.chaincode import Chaincode, ChaincodeVersion
 from app.models.user import User
 from app.schemas.chaincode import ChaincodeUpload, ChaincodeUpdate
 from app.services.audit_service import AuditService
+from app.services.sandbox_service import SandboxService
 
 
 class ChaincodeService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, auto_approve_enabled: bool = False):
         self.db = db
         self.audit_service = AuditService(db)
+        self.auto_approve_enabled = auto_approve_enabled
+        self.sandbox_service = SandboxService()
     
     def create_chaincode(self, chaincode_data: ChaincodeUpload, uploaded_by: UUID) -> Chaincode:
         """Create a new chaincode"""
@@ -116,25 +119,58 @@ class ChaincodeService:
         
         return chaincode
     
-    def validate_chaincode(self, source_code: str) -> dict:
-        """Validate chaincode source code"""
-        errors = []
+    def validate_chaincode(self, chaincode_id: UUID) -> dict:
+        """
+        Validate chaincode source code using sandbox environment
+        Implements safe validation from mainflow.md section 9
+        """
+        chaincode = self.get_chaincode_by_id(chaincode_id)
+        if not chaincode:
+            return {
+                "is_valid": False,
+                "errors": ["Chaincode not found"]
+            }
         
-        # Basic validation
-        if not source_code.strip():
-            errors.append("Source code cannot be empty")
+        # Use sandbox for safe validation
+        result = self.sandbox_service.validate_chaincode_in_sandbox(
+            chaincode_name=chaincode.name,
+            chaincode_source=chaincode.source_code,
+            language=chaincode.language or "golang"
+        )
         
-        # Check for basic Go structure (if language is golang)
-        if "package main" not in source_code:
-            errors.append("Missing package main declaration")
-        
-        if "func main" not in source_code and "func Init" not in source_code:
-            errors.append("Missing main or Init function")
+        # Update chaincode status based on validation
+        if result["success"]:
+            self.update_chaincode_status(chaincode_id, "validated")
+        else:
+            self.update_chaincode_status(chaincode_id, "invalid")
         
         return {
-            "is_valid": len(errors) == 0,
-            "errors": errors
+            "is_valid": result["success"],
+            "errors": result.get("errors", []),
+            "warnings": result.get("warnings", [])
         }
+    
+    def auto_approve_if_valid(self, chaincode_id: UUID, system_user_id: UUID) -> Optional[Chaincode]:
+        """
+        Auto-approve chaincode if validation passes and auto-approve is enabled
+        This implements the Auto-Approve feature from mainflow.md section 5.4
+        """
+        if not self.auto_approve_enabled:
+            return None
+        
+        chaincode = self.get_chaincode_by_id(chaincode_id)
+        if not chaincode:
+            return None
+        
+        # Only auto-approve if status is validated
+        if chaincode.status == "validated":
+            return self.update_chaincode_status(
+                chaincode_id=chaincode_id,
+                status="approved",
+                approved_by=system_user_id
+            )
+        
+        return None
     
     def get_chaincode_versions(self, chaincode_id: UUID) -> List[ChaincodeVersion]:
         """Get all versions of a chaincode"""

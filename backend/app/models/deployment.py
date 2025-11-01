@@ -14,6 +14,8 @@ class Deployment(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     chaincode_id = Column(UUID(as_uuid=True), ForeignKey("chaincodes.id"), nullable=False)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"))
+    channel_id = Column(UUID(as_uuid=True), ForeignKey("channels.id"))
     channel_name = Column(String(100), nullable=False, index=True)
     target_peers = Column(JSON, nullable=False)  # List of peer endpoints
     deployment_status = Column(String(20), default="pending", index=True)  # pending, deploying, success, failed, rolled_back
@@ -28,6 +30,8 @@ class Deployment(Base):
     
     # Relationships
     chaincode = relationship("Chaincode", back_populates="deployments")
+    project = relationship("Project", back_populates="deployments")
+    channel = relationship("Channel", back_populates="deployments")
     deployer = relationship("User", back_populates="deployments")
     
     def __repr__(self):

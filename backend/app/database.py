@@ -8,11 +8,12 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from app.config import settings
 
 # Synchronous database
+# SECURITY: Only echo SQL in safe development mode (never in production)
 engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,
     pool_recycle=300,
-    echo=settings.DEBUG
+    echo=settings.SAFE_DATABASE_LOGGING  # Changed from settings.DEBUG
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -22,7 +23,7 @@ async_engine = create_async_engine(
     settings.DATABASE_URL_ASYNC,
     pool_pre_ping=True,
     pool_recycle=300,
-    echo=settings.DEBUG
+    echo=settings.SAFE_DATABASE_LOGGING  # Changed from settings.DEBUG
 )
 
 AsyncSessionLocal = sessionmaker(
