@@ -1,15 +1,52 @@
 """
 Security Headers Middleware
-Adds essential security headers to all responses
+
+Implements OWASP security best practices by adding essential headers.
+
+Headers implemented:
+- X-Content-Type-Options: MIME type sniffing protection
+- X-Frame-Options: Clickjacking protection
+- X-XSS-Protection: XSS filter (legacy browsers)
+- Strict-Transport-Security: HTTPS enforcement
+- Content-Security-Policy: Injection attack prevention
+- Referrer-Policy: Referrer information control
+- Permissions-Policy: Browser feature control
+
+References:
+- OWASP Secure Headers Project
+- MDN Web Security Guidelines
 """
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
+from typing import Dict
+import logging
 from app.config import settings
 
+logger = logging.getLogger(__name__)
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """
+    Adds security headers to all HTTP responses
+    
+    Protects against:
+    - Clickjacking attacks
+    - MIME type confusion
+    - XSS attacks
+    - Man-in-the-middle attacks
+    - Information leakage
+    """
+    
     async def dispatch(self, request: Request, call_next):
         response: Response = await call_next(request)
+        
+        # Add security headers
+        self._add_security_headers(response, request)
+        
+        return response
+    
+    def _add_security_headers(self, response: Response, request: Request):
         
         # X-Content-Type-Options: Prevents MIME type sniffing
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -58,7 +95,49 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         if "Server" in response.headers:
             del response.headers["Server"]
         
-        # X-Permitted-Cross-Domain-Policies
+        # X-Permitted-Cross-Domain-Policies: Controls cross-domain policy files
         response.headers["X-Permitted-Cross-Domain-Policies"] = "none"
         
-        return response
+        # X-Download-Options: Prevents automatic file opening in IE
+        response.headers["X-Download-Options"] = "noopen"
+        
+        # X-DNS-Prefetch-Control: Controls DNS prefetching
+        response.headers["X-DNS-Prefetch-Control"] = "off"
+        
+        # Log security headers applied (debug only)
+        if settings.DEBUG:
+            logger.debug(f"Security headers applied to {request.url.path}")
+    
+    def get_csp_for_environment(self) -> str:
+        """
+        Get Content Security Policy based on environment
+        
+        Stricter in production, more relaxed in development
+        """
+        if settings.DEBUG:
+            # Development CSP (more permissive for hot reload, etc.)
+            directives = [
+                "default-src 'self'",
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+                "style-src 'self' 'unsafe-inline'",
+                "img-src 'self' data: https: blob:",
+                "font-src 'self' data:",
+                "connect-src 'self' ws: wss:",  # WebSocket support
+                "frame-ancestors 'none'",
+            ]
+        else:
+            # Production CSP (stricter)
+            directives = [
+                "default-src 'self'",
+                "script-src 'self'",
+                "style-src 'self'",
+                "img-src 'self' data: https:",
+                "font-src 'self'",
+                "connect-src 'self' wss:",  # Only secure WebSocket
+                "frame-ancestors 'none'",
+                "base-uri 'self'",
+                "form-action 'self'",
+                "upgrade-insecure-requests",
+            ]
+        
+        return "; ".join(directives)

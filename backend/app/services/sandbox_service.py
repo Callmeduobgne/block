@@ -1,19 +1,30 @@
 """
 Backend Phase 3 - Sandbox Service
 Implements safe chaincode validation environment from mainflow.md section 9
+
+Features:
+- Isolated environment for chaincode testing
+- Multi-language support (Go, JavaScript, TypeScript)
+- Syntax validation and compilation checks
+- Security scanning for malicious patterns
+- Resource limits (CPU, memory, timeout)
 """
 import os
 import subprocess
 import tempfile
 import shutil
-from typing import Dict, Any
+from typing import Dict, Any, List
 import json
+import logging
+import re
 
 from app.utils.archive_utils import (
     is_archive_source,
     extract_archive_source,
     find_first_source_file,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class SandboxService:
@@ -22,13 +33,39 @@ class SandboxService:
     Prevents malicious code from affecting production ledger
     """
     
+    # Security patterns to detect malicious code
+    DANGEROUS_PATTERNS = [
+        r'os\.system',
+        r'subprocess\.(call|run|Popen)',
+        r'eval\s*\(',
+        r'exec\s*\(',
+        r'__import__',
+        r'\.\./',  # Path traversal
+        r'rm\s+-rf',
+        r'curl\s+',
+        r'wget\s+',
+    ]
+    
     def __init__(self):
         self.temp_dir = tempfile.mkdtemp(prefix="chaincode_sandbox_")
+        logger.info(f"Sandbox environment created at {self.temp_dir}")
     
     def __del__(self):
         """Cleanup temporary directory"""
-        if os.path.exists(self.temp_dir):
-            shutil.rmtree(self.temp_dir)
+        try:
+            if os.path.exists(self.temp_dir):
+                shutil.rmtree(self.temp_dir)
+                logger.info(f"Sandbox environment cleaned up: {self.temp_dir}")
+        except Exception as e:
+            logger.error(f"Failed to cleanup sandbox: {str(e)}")
+    
+    def _check_security_patterns(self, source_code: str) -> List[str]:
+        """Check for dangerous code patterns"""
+        security_issues = []
+        for pattern in self.DANGEROUS_PATTERNS:
+            if re.search(pattern, source_code, re.IGNORECASE):
+                security_issues.append(f"Potentially dangerous pattern detected: {pattern}")
+        return security_issues
     
     def validate_chaincode_in_sandbox(
         self, 
@@ -39,8 +76,28 @@ class SandboxService:
         """
         Validate chaincode in isolated sandbox environment
         Returns validation result with detailed error messages
+        
+        Args:
+            chaincode_name: Name of the chaincode
+            chaincode_source: Source code or archive
+            language: Programming language (golang, javascript, typescript)
+            
+        Returns:
+            Dict with success status, errors, warnings, and language info
         """
         try:
+            logger.info(f"Validating chaincode '{chaincode_name}' in sandbox (language: {language})")
+            
+            # Security check
+            security_issues = self._check_security_patterns(chaincode_source)
+            if security_issues:
+                logger.warning(f"Security issues found in chaincode '{chaincode_name}': {security_issues}")
+                return {
+                    "success": False,
+                    "errors": security_issues,
+                    "language": language
+                }
+            
             # Create temporary chaincode directory
             cc_dir = os.path.join(self.temp_dir, chaincode_name)
             os.makedirs(cc_dir, exist_ok=True)

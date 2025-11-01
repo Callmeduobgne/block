@@ -1,13 +1,37 @@
 """
 Chaincode Source Code Validator
-Performs static analysis and security checks on chaincode before upload
+
+Performs comprehensive static analysis and security checks:
+- Dangerous pattern detection (exec, syscall, unsafe operations)
+- Required pattern validation (Fabric SDK imports)
+- Size and complexity limits
+- Code quality checks
+- Hardcoded credential detection
+
+Supports: Go, JavaScript, TypeScript, Java chaincodes
 """
 import re
-from typing import Dict, List, Tuple
+import logging
+from typing import Dict, List, Tuple, Any
+
+logger = logging.getLogger(__name__)
+
 
 class ChaincodeValidator:
     """
     Validates chaincode source code for security issues and best practices
+    
+    Security checks:
+    - System command execution
+    - Network operations
+    - File system operations
+    - Unsafe memory operations
+    - Hardcoded credentials
+    
+    Best practices:
+    - Fabric SDK usage
+    - Code size limits
+    - Complexity checks
     """
     
     # Dangerous patterns that should be blocked
@@ -145,44 +169,124 @@ class ChaincodeValidator:
         return warnings
     
     @staticmethod
-    def validate_chaincode(filename: str, code: str) -> Dict[str, any]:
+    def validate_chaincode(filename: str, code: str) -> Dict[str, Any]:
         """
         Comprehensive chaincode validation
-        Returns dict with validation results
-        """
-        language = ChaincodeValidator.detect_language(filename, code)
         
-        if language == 'unknown':
+        Performs all security and quality checks on chaincode source.
+        
+        Args:
+            filename: Chaincode filename (for language detection)
+            code: Source code content
+            
+        Returns:
+            Dict containing:
+            - is_valid: bool
+            - language: detected language
+            - errors: list of critical issues
+            - warnings: list of quality issues
+            - line_count: number of lines
+            - size_bytes: file size in bytes
+            - complexity_score: estimated complexity
+        """
+        try:
+            logger.info(f"Validating chaincode: {filename}")
+            
+            language = ChaincodeValidator.detect_language(filename, code)
+            
+            if language == 'unknown':
+                logger.warning(f"Unknown chaincode language for {filename}")
+                return {
+                    'is_valid': False,
+                    'errors': ['Unsupported file type. Only .go, .js, .ts, .java are allowed'],
+                    'warnings': [],
+                    'language': 'unknown'
+                }
+            
+            errors = []
+            warnings = []
+            
+            # Check for dangerous patterns
+            logger.debug(f"Checking dangerous patterns for {filename}")
+            dangerous_issues = ChaincodeValidator.check_dangerous_patterns(code, language)
+            if dangerous_issues:
+                logger.warning(f"Dangerous patterns found in {filename}: {len(dangerous_issues)} issues")
+            errors.extend(dangerous_issues)
+            
+            # Check for required patterns
+            logger.debug(f"Checking required patterns for {filename}")
+            required_issues = ChaincodeValidator.check_required_patterns(code, language)
+            if required_issues:
+                logger.warning(f"Missing required patterns in {filename}: {len(required_issues)} issues")
+            errors.extend(required_issues)
+            
+            # Check size limits
+            logger.debug(f"Checking size limits for {filename}")
+            size_issues = ChaincodeValidator.check_size_limits(code)
+            if size_issues:
+                logger.warning(f"Size limit violations in {filename}: {len(size_issues)} issues")
+            errors.extend(size_issues)
+            
+            # Check code quality (warnings only)
+            logger.debug(f"Checking code quality for {filename}")
+            quality_warnings = ChaincodeValidator.check_code_quality(code, language)
+            warnings.extend(quality_warnings)
+            
+            # Calculate complexity score (simple heuristic)
+            complexity_score = ChaincodeValidator._calculate_complexity(code)
+            
+            is_valid = len(errors) == 0
+            
+            logger.info(
+                f"Validation complete for {filename}: "
+                f"valid={is_valid}, errors={len(errors)}, warnings={len(warnings)}"
+            )
+            
+            return {
+                'is_valid': is_valid,
+                'language': language,
+                'errors': errors,
+                'warnings': warnings,
+                'line_count': len(code.split('\n')),
+                'size_bytes': len(code.encode('utf-8')),
+                'complexity_score': complexity_score
+            }
+            
+        except Exception as e:
+            logger.error(f"Error validating chaincode {filename}: {str(e)}", exc_info=True)
             return {
                 'is_valid': False,
-                'errors': ['Unsupported file type. Only .go, .js, .ts, .java are allowed'],
-                'warnings': []
+                'errors': [f"Validation error: {str(e)}"],
+                'warnings': [],
+                'language': 'unknown'
             }
+    
+    @staticmethod
+    def _calculate_complexity(code: str) -> int:
+        """
+        Calculate rough complexity score based on:
+        - Number of functions/methods
+        - Number of conditionals
+        - Number of loops
+        - Nesting depth
+        """
+        score = 0
         
-        errors = []
-        warnings = []
+        # Count function definitions
+        score += len(re.findall(r'func\s+\w+|function\s+\w+|def\s+\w+', code))
         
-        # Check for dangerous patterns
-        dangerous_issues = ChaincodeValidator.check_dangerous_patterns(code, language)
-        errors.extend(dangerous_issues)
+        # Count conditionals
+        score += len(re.findall(r'\bif\b|\belse\b|\bswitch\b|\bcase\b', code))
         
-        # Check for required patterns
-        required_issues = ChaincodeValidator.check_required_patterns(code, language)
-        errors.extend(required_issues)
+        # Count loops
+        score += len(re.findall(r'\bfor\b|\bwhile\b|\bdo\b', code))
         
-        # Check size limits
-        size_issues = ChaincodeValidator.check_size_limits(code)
-        errors.extend(size_issues)
+        # Estimate nesting (count indentation levels)
+        max_indent = 0
+        for line in code.split('\n'):
+            indent = len(line) - len(line.lstrip())
+            max_indent = max(max_indent, indent // 4)  # Assume 4-space indents
         
-        # Check code quality (warnings only)
-        quality_warnings = ChaincodeValidator.check_code_quality(code, language)
-        warnings.extend(quality_warnings)
+        score += max_indent * 5
         
-        return {
-            'is_valid': len(errors) == 0,
-            'language': language,
-            'errors': errors,
-            'warnings': warnings,
-            'line_count': len(code.split('\n')),
-            'size_bytes': len(code.encode('utf-8'))
-        }
+        return score

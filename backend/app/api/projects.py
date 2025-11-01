@@ -1,15 +1,18 @@
 """
 Backend Phase 3 - Project API Routes
+Manages chaincode projects and grouping
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
+import logging
 from app.database import get_db
 from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse, ProjectList, ProjectStats
 from app.services.project_service import ProjectService
 from app.middleware.rbac import get_current_user, require_permission
 from app.models.user import User
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -62,22 +65,34 @@ async def get_project_by_id(
     return project
 
 
-@router.post("/", response_model=ProjectResponse)
+@router.post("/", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 async def create_project(
     project_data: ProjectCreate,
     current_user: User = Depends(require_permission("project.create")),
     db: Session = Depends(get_db)
 ):
-    """Create a new project"""
-    project_service = ProjectService(db)
+    """
+    Create a new project
     
+    Projects allow grouping related chaincodes together for better organization
+    """
     try:
+        logger.info(f"User {current_user.id} creating new project: {project_data.name}")
+        project_service = ProjectService(db)
         project = project_service.create_project(project_data, str(current_user.id))
+        logger.info(f"Project {project.id} created successfully")
         return project
     except ValueError as e:
+        logger.warning(f"Project creation validation error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error creating project: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create project"
         )
 
 

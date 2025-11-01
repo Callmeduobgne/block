@@ -1,9 +1,17 @@
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
+import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
 import toast from 'react-hot-toast';
+
+interface RetryConfig extends AxiosRequestConfig {
+  _retry?: boolean;
+  _retryCount?: number;
+}
 
 class ApiClient {
   private client: AxiosInstance;
   private blockchainClient: AxiosInstance;
+  private readonly MAX_RETRIES = 3;
+  private readonly RETRY_DELAY = 1000;
+  private readonly RETRY_STATUS_CODES = [408, 429, 500, 502, 503, 504];
 
   constructor() {
     this.client = axios.create({
@@ -12,6 +20,7 @@ class ApiClient {
       headers: {
         'Content-Type': 'application/json',
       },
+      withCredentials: true, // Enable cookies for HttpOnly tokens
     });
 
     // Separate client for blockchain explorer (via API Gateway)
@@ -24,6 +33,22 @@ class ApiClient {
     });
 
     this.setupInterceptors();
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private shouldRetry(error: AxiosError): boolean {
+    const config = error.config as RetryConfig;
+    const retryCount = config?._retryCount || 0;
+    const status = error.response?.status;
+    
+    return (
+      retryCount < this.MAX_RETRIES &&
+      (!status || this.RETRY_STATUS_CODES.includes(status)) &&
+      error.code !== 'ECONNABORTED' // Don't retry timeouts
+    );
   }
 
   private setupInterceptors() {
@@ -51,12 +76,17 @@ class ApiClient {
       }
     );
 
-    // Response interceptor for error handling
+    // Response interceptor for error handling with retry logic
     this.client.interceptors.response.use(
       (response) => response,
-      async (error) => {
-        const originalRequest = error.config;
+      async (error: AxiosError) => {
+        const originalRequest = error.config as RetryConfig;
 
+        if (!originalRequest) {
+          return Promise.reject(error);
+        }
+
+        // Handle 401 Unauthorized - Token refresh
         if (error.response?.status === 401 && !originalRequest._retry) {
           originalRequest._retry = true;
 
@@ -67,28 +97,98 @@ class ApiClient {
               const { access_token } = response.data;
               
               localStorage.setItem('access_token', access_token);
-              originalRequest.headers.Authorization = `Bearer ${access_token}`;
+              originalRequest.headers!.Authorization = `Bearer ${access_token}`;
               
               return this.client(originalRequest);
+            } else {
+              // No refresh token, redirect to login
+              this.handleAuthError();
+              return Promise.reject(error);
             }
           } catch (refreshError) {
-            // Refresh failed, clear tokens and prevent further retries
-            localStorage.removeItem('access_token');
-            localStorage.removeItem('refresh_token');
-            originalRequest._retry = true; // Prevent infinite retry
+            // Refresh failed, clear tokens and redirect to login
+            this.handleAuthError();
             return Promise.reject(refreshError);
           }
         }
 
-        // Show error toast for non-401 errors
-        if (error.response?.status !== 401) {
-          const message = error.response?.data?.detail || error.message || 'Có lỗi xảy ra';
-          toast.error(message);
+        // Retry logic for network errors and specific status codes
+        if (this.shouldRetry(error)) {
+          originalRequest._retryCount = (originalRequest._retryCount || 0) + 1;
+          
+          const delayTime = this.RETRY_DELAY * originalRequest._retryCount;
+          console.log(`Retrying request (${originalRequest._retryCount}/${this.MAX_RETRIES}) after ${delayTime}ms...`);
+          
+          await this.delay(delayTime);
+          return this.client(originalRequest);
         }
+
+        // Show error toast for final errors
+        this.handleError(error);
 
         return Promise.reject(error);
       }
     );
+
+    // Setup blockchain client interceptor
+    this.blockchainClient.interceptors.response.use(
+      (response) => response,
+      async (error: AxiosError) => {
+        const originalRequest = error.config as RetryConfig;
+        
+        // Retry logic for blockchain client
+        if (originalRequest && this.shouldRetry(error)) {
+          originalRequest._retryCount = (originalRequest._retryCount || 0) + 1;
+          
+          const delayTime = this.RETRY_DELAY * originalRequest._retryCount;
+          await this.delay(delayTime);
+          return this.blockchainClient(originalRequest);
+        }
+
+        this.handleError(error);
+        return Promise.reject(error);
+      }
+    );
+  }
+
+  private handleAuthError() {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    
+    // Redirect to login page
+    if (window.location.pathname !== '/login') {
+      window.location.href = '/login';
+    }
+  }
+
+  private handleError(error: AxiosError) {
+    const status = error.response?.status;
+    const data = error.response?.data as any;
+    
+    let message = 'Có lỗi xảy ra';
+    
+    if (status === 400) {
+      message = data?.detail || 'Yêu cầu không hợp lệ';
+    } else if (status === 403) {
+      message = 'Bạn không có quyền thực hiện hành động này';
+    } else if (status === 404) {
+      message = 'Không tìm thấy tài nguyên';
+    } else if (status === 429) {
+      message = 'Quá nhiều yêu cầu. Vui lòng thử lại sau';
+    } else if (status && status >= 500) {
+      message = 'Lỗi máy chủ. Vui lòng thử lại sau';
+    } else if (error.code === 'ECONNABORTED') {
+      message = 'Yêu cầu hết thời gian chờ';
+    } else if (error.code === 'ERR_NETWORK') {
+      message = 'Lỗi kết nối mạng';
+    } else if (data?.detail) {
+      message = data.detail;
+    }
+
+    // Don't show toast for 401 errors (handled by redirect)
+    if (status !== 401) {
+      toast.error(message);
+    }
   }
 
   // Auth endpoints

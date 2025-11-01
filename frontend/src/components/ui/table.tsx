@@ -1,116 +1,139 @@
 import React from 'react';
 import { cn } from '../../lib/utils';
+import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 
-const Table = React.forwardRef<
-  HTMLTableElement,
-  React.HTMLAttributes<HTMLTableElement>
->(({ className, ...props }, ref) => (
-  <div className="relative w-full overflow-auto">
-    <table
-      ref={ref}
-      className={cn("w-full caption-bottom text-sm", className)}
-      {...props}
-    />
-  </div>
-))
-Table.displayName = "Table"
-
-const TableHeader = React.forwardRef<
-  HTMLTableSectionElement,
-  React.HTMLAttributes<HTMLTableSectionElement>
->(({ className, ...props }, ref) => (
-  <thead ref={ref} className={cn("[&_tr]:border-b", className)} {...props} />
-))
-TableHeader.displayName = "TableHeader"
-
-const TableBody = React.forwardRef<
-  HTMLTableSectionElement,
-  React.HTMLAttributes<HTMLTableSectionElement>
->(({ className, ...props }, ref) => (
-  <tbody
-    ref={ref}
-    className={cn("[&_tr:last-child]:border-0", className)}
-    {...props}
-  />
-))
-TableBody.displayName = "TableBody"
-
-const TableFooter = React.forwardRef<
-  HTMLTableSectionElement,
-  React.HTMLAttributes<HTMLTableSectionElement>
->(({ className, ...props }, ref) => (
-  <tfoot
-    ref={ref}
-    className={cn(
-      "border-t bg-gray-100/50 font-medium [&>tr]:last:border-b-0 dark:bg-gray-800/50",
-      className
-    )}
-    {...props}
-  />
-))
-TableFooter.displayName = "TableFooter"
-
-const TableRow = React.forwardRef<
-  HTMLTableRowElement,
-  React.HTMLAttributes<HTMLTableRowElement>
->(({ className, ...props }, ref) => (
-  <tr
-    ref={ref}
-    className={cn(
-      "border-b transition-colors hover:bg-gray-100/50 data-[state=selected]:bg-gray-100 dark:hover:bg-gray-800/50 dark:data-[state=selected]:bg-gray-800",
-      className
-    )}
-    {...props}
-  />
-))
-TableRow.displayName = "TableRow"
-
-const TableHead = React.forwardRef<
-  HTMLTableCellElement,
-  React.ThHTMLAttributes<HTMLTableCellElement>
->(({ className, ...props }, ref) => (
-  <th
-    ref={ref}
-    className={cn(
-      "h-12 px-4 text-left align-middle font-medium text-gray-500 [&:has([role=checkbox])]:pr-0 dark:text-gray-400",
-      className
-    )}
-    {...props}
-  />
-))
-TableHead.displayName = "TableHead"
-
-const TableCell = React.forwardRef<
-  HTMLTableCellElement,
-  React.TdHTMLAttributes<HTMLTableCellElement>
->(({ className, ...props }, ref) => (
-  <td
-    ref={ref}
-    className={cn("p-4 align-middle [&:has([role=checkbox])]:pr-0", className)}
-    {...props}
-  />
-))
-TableCell.displayName = "TableCell"
-
-const TableCaption = React.forwardRef<
-  HTMLTableCaptionElement,
-  React.HTMLAttributes<HTMLTableCaptionElement>
->(({ className, ...props }, ref) => (
-  <caption
-    ref={ref}
-    className={cn("mt-4 text-sm text-gray-500 dark:text-gray-400", className)}
-    {...props}
-  />
-))
-TableCaption.displayName = "TableCaption"
-
-export {
-  Table,
-  TableHeader,
-  TableBody,
-  TableFooter,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableCaption,
+export interface TableColumn<T = any> {
+  key: string;
+  header: string;
+  sortable?: boolean;
+  render?: (value: any, row: T, index: number) => React.ReactNode;
+  className?: string;
+  width?: string;
 }
+
+export interface TableProps<T = any> {
+  columns: TableColumn<T>[];
+  data: T[];
+  keyExtractor: (row: T, index: number) => string | number;
+  onRowClick?: (row: T, index: number) => void;
+  sortBy?: string;
+  sortDirection?: 'asc' | 'desc';
+  onSort?: (key: string) => void;
+  loading?: boolean;
+  emptyMessage?: string;
+  className?: string;
+  striped?: boolean;
+  hoverable?: boolean;
+}
+
+function Table<T = any>({
+  columns,
+  data,
+  keyExtractor,
+  onRowClick,
+  sortBy,
+  sortDirection,
+  onSort,
+  loading = false,
+  emptyMessage = 'No data available',
+  className,
+  striped = false,
+  hoverable = true,
+}: TableProps<T>) {
+  const handleSort = (columnKey: string) => {
+    if (onSort) {
+      onSort(columnKey);
+    }
+  };
+
+  const getSortIcon = (columnKey: string) => {
+    if (sortBy !== columnKey) {
+      return <ArrowUpDown className="h-4 w-4 ml-1 inline opacity-50" />;
+    }
+    return sortDirection === 'asc' ? (
+      <ArrowUp className="h-4 w-4 ml-1 inline text-primary-600" />
+    ) : (
+      <ArrowDown className="h-4 w-4 ml-1 inline text-primary-600" />
+    );
+  };
+
+  return (
+    <div className={cn('w-full overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700', className)}>
+      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+        <thead className="bg-gray-50 dark:bg-gray-800">
+          <tr>
+            {columns.map((column) => (
+              <th
+                key={column.key}
+                scope="col"
+                className={cn(
+                  'px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider',
+                  column.sortable && 'cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors',
+                  column.className
+                )}
+                style={{ width: column.width }}
+                onClick={() => column.sortable && handleSort(column.key)}
+              >
+                <div className="flex items-center">
+                  {column.header}
+                  {column.sortable && getSortIcon(column.key)}
+                </div>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+          {loading ? (
+            <tr>
+              <td colSpan={columns.length} className="px-6 py-12 text-center">
+                <div className="flex items-center justify-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+                  <span className="ml-3 text-gray-500 dark:text-gray-400">Loading...</span>
+                </div>
+              </td>
+            </tr>
+          ) : data.length === 0 ? (
+            <tr>
+              <td colSpan={columns.length} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                {emptyMessage}
+              </td>
+            </tr>
+          ) : (
+            data.map((row, rowIndex) => {
+              const key = keyExtractor(row, rowIndex);
+              return (
+                <tr
+                  key={key}
+                  onClick={() => onRowClick?.(row, rowIndex)}
+                  className={cn(
+                    'transition-colors',
+                    striped && rowIndex % 2 === 1 && 'bg-gray-50 dark:bg-gray-800',
+                    hoverable && 'hover:bg-gray-50 dark:hover:bg-gray-800',
+                    onRowClick && 'cursor-pointer'
+                  )}
+                >
+                  {columns.map((column) => {
+                    const value = (row as any)[column.key];
+                    return (
+                      <td
+                        key={column.key}
+                        className={cn(
+                          'px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100',
+                          column.className
+                        )}
+                      >
+                        {column.render ? column.render(value, row, rowIndex) : value}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export default Table;

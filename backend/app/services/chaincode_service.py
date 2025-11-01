@@ -1,15 +1,26 @@
 """
 Backend Phase 3 - Chaincode Service
+
+Manages complete chaincode lifecycle:
+- Upload and validation
+- Sandbox testing
+- Auto-approval workflow
+- Version management
+- Status tracking
 """
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from uuid import UUID
+from datetime import datetime, timezone
+import logging
 from app.models.chaincode import Chaincode, ChaincodeVersion
 from app.models.user import User
 from app.schemas.chaincode import ChaincodeUpload, ChaincodeUpdate
 from app.services.audit_service import AuditService
 from app.services.sandbox_service import SandboxService
+
+logger = logging.getLogger(__name__)
 
 
 class ChaincodeService:
@@ -18,33 +29,76 @@ class ChaincodeService:
         self.audit_service = AuditService(db)
         self.auto_approve_enabled = auto_approve_enabled
         self.sandbox_service = SandboxService()
+        logger.info(f"ChaincodeService initialized (auto_approve: {auto_approve_enabled})")
     
     def create_chaincode(self, chaincode_data: ChaincodeUpload, uploaded_by: UUID) -> Chaincode:
-        """Create a new chaincode"""
-        db_chaincode = Chaincode(
-            name=chaincode_data.name,
-            version=chaincode_data.version,
-            source_code=chaincode_data.source_code,
-            description=chaincode_data.description,
-            language=chaincode_data.language,
-            uploaded_by=uploaded_by,
-            status="uploaded"
-        )
+        """
+        Create a new chaincode
         
-        self.db.add(db_chaincode)
-        self.db.commit()
-        self.db.refresh(db_chaincode)
-        
-        # Log audit event
-        self.audit_service.log_event(
-            user_id=uploaded_by,
-            action="CHAINCODE_UPLOADED",
-            resource_type="chaincode",
-            resource_id=str(db_chaincode.id),
-            details={"name": chaincode_data.name, "version": chaincode_data.version}
-        )
-        
-        return db_chaincode
+        Args:
+            chaincode_data: Chaincode upload data
+            uploaded_by: User ID uploading the chaincode
+            
+        Returns:
+            Created chaincode model
+        """
+        try:
+            logger.info(f"Creating chaincode: {chaincode_data.name} v{chaincode_data.version} by user {uploaded_by}")
+            
+            # Check for duplicate
+            existing = self.db.query(Chaincode).filter(
+                and_(
+                    Chaincode.name == chaincode_data.name,
+                    Chaincode.version == chaincode_data.version
+                )
+            ).first()
+            
+            if existing:
+                logger.warning(f"Chaincode {chaincode_data.name} v{chaincode_data.version} already exists")
+                raise ValueError(f"Chaincode {chaincode_data.name} version {chaincode_data.version} already exists")
+            
+            db_chaincode = Chaincode(
+                name=chaincode_data.name,
+                version=chaincode_data.version,
+                source_code=chaincode_data.source_code,
+                description=chaincode_data.description,
+                language=chaincode_data.language,
+                uploaded_by=uploaded_by,
+                status="uploaded",
+                chaincode_metadata={
+                    "upload_timestamp": datetime.now(timezone.utc).isoformat(),
+                    "file_size": len(chaincode_data.source_code),
+                    "language": chaincode_data.language
+                }
+            )
+            
+            self.db.add(db_chaincode)
+            self.db.commit()
+            self.db.refresh(db_chaincode)
+            
+            logger.info(f"Chaincode {db_chaincode.id} created successfully")
+            
+            # Log audit event
+            self.audit_service.log_event(
+                user_id=uploaded_by,
+                action="CHAINCODE_UPLOADED",
+                resource_type="chaincode",
+                resource_id=str(db_chaincode.id),
+                details={
+                    "name": chaincode_data.name, 
+                    "version": chaincode_data.version,
+                    "language": chaincode_data.language
+                }
+            )
+            
+            return db_chaincode
+            
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error(f"Error creating chaincode: {str(e)}", exc_info=True)
+            self.db.rollback()
+            raise
     
     def get_chaincode_by_id(self, chaincode_id: UUID) -> Optional[Chaincode]:
         """Get chaincode by ID"""
@@ -119,36 +173,71 @@ class ChaincodeService:
         
         return chaincode
     
-    def validate_chaincode(self, chaincode_id: UUID) -> dict:
+    def validate_chaincode(self, chaincode_id: UUID) -> Dict[str, Any]:
         """
         Validate chaincode source code using sandbox environment
         Implements safe validation from mainflow.md section 9
+        
+        Args:
+            chaincode_id: UUID of chaincode to validate
+            
+        Returns:
+            Dict with validation results including is_valid, errors, warnings
         """
-        chaincode = self.get_chaincode_by_id(chaincode_id)
-        if not chaincode:
+        try:
+            logger.info(f"Validating chaincode {chaincode_id}")
+            
+            chaincode = self.get_chaincode_by_id(chaincode_id)
+            if not chaincode:
+                logger.error(f"Chaincode {chaincode_id} not found for validation")
+                return {
+                    "is_valid": False,
+                    "errors": ["Chaincode not found"]
+                }
+            
+            logger.info(f"Running sandbox validation for {chaincode.name} v{chaincode.version}")
+            
+            # Use sandbox for safe validation
+            result = self.sandbox_service.validate_chaincode_in_sandbox(
+                chaincode_name=chaincode.name,
+                chaincode_source=chaincode.source_code,
+                language=chaincode.language or "golang"
+            )
+            
+            # Store validation results in metadata
+            if not chaincode.chaincode_metadata:
+                chaincode.chaincode_metadata = {}
+            
+            chaincode.chaincode_metadata['validation_result'] = {
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'is_valid': result.get("success", False),
+                'errors': result.get("errors", []),
+                'warnings': result.get("warnings", [])
+            }
+            
+            # Update chaincode status based on validation
+            if result.get("success"):
+                logger.info(f"Chaincode {chaincode_id} validation successful")
+                self.update_chaincode_status(chaincode_id, "validated")
+            else:
+                logger.warning(f"Chaincode {chaincode_id} validation failed: {result.get('errors')}")
+                self.update_chaincode_status(chaincode_id, "invalid")
+            
+            self.db.commit()
+            
+            return {
+                "is_valid": result.get("success", False),
+                "errors": result.get("errors", []),
+                "warnings": result.get("warnings", [])
+            }
+            
+        except Exception as e:
+            logger.error(f"Error validating chaincode {chaincode_id}: {str(e)}", exc_info=True)
+            self.db.rollback()
             return {
                 "is_valid": False,
-                "errors": ["Chaincode not found"]
+                "errors": [f"Validation error: {str(e)}"]
             }
-        
-        # Use sandbox for safe validation
-        result = self.sandbox_service.validate_chaincode_in_sandbox(
-            chaincode_name=chaincode.name,
-            chaincode_source=chaincode.source_code,
-            language=chaincode.language or "golang"
-        )
-        
-        # Update chaincode status based on validation
-        if result["success"]:
-            self.update_chaincode_status(chaincode_id, "validated")
-        else:
-            self.update_chaincode_status(chaincode_id, "invalid")
-        
-        return {
-            "is_valid": result["success"],
-            "errors": result.get("errors", []),
-            "warnings": result.get("warnings", [])
-        }
     
     def auto_approve_if_valid(self, chaincode_id: UUID, system_user_id: UUID) -> Optional[Chaincode]:
         """

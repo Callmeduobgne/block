@@ -1,12 +1,28 @@
 """
-Backend - Rate Limiting Middleware
-Protects against brute force attacks and DDoS
+Rate Limiting Middleware
+
+Features:
+- Per-IP rate limiting
+- Per-endpoint granular control
+- Automatic lockout on abuse
+- Sliding window algorithm
+- Memory-efficient cleanup
+
+Protection against:
+- Brute force attacks
+- DDoS attempts
+- API abuse
+- Credential stuffing
 """
 from fastapi import Request, HTTPException, status
-from typing import Dict
+from typing import Dict, Optional
 from datetime import datetime, timedelta
 import asyncio
+import logging
 from collections import defaultdict
+
+logger = logging.getLogger(__name__)
+
 
 class RateLimiter:
     def __init__(self):
@@ -37,6 +53,27 @@ class RateLimiter:
         """Lock out an IP for specified duration"""
         self.lockouts[ip][endpoint] = datetime.now() + timedelta(minutes=duration_minutes)
     
+    def get_client_identifier(self, request: Request) -> str:
+        """
+        Get unique client identifier
+        
+        Priority:
+        1. X-Forwarded-For (if behind proxy)
+        2. X-Real-IP
+        3. request.client.host
+        """
+        # Check proxy headers
+        forwarded = request.headers.get("X-Forwarded-For")
+        if forwarded:
+            # Take first IP in chain
+            return forwarded.split(",")[0].strip()
+        
+        real_ip = request.headers.get("X-Real-IP")
+        if real_ip:
+            return real_ip.strip()
+        
+        return request.client.host if request.client else "unknown"
+    
     async def check_rate_limit(
         self,
         request: Request,
@@ -47,15 +84,22 @@ class RateLimiter:
         """
         Check if request should be rate limited
         
+        Uses sliding window algorithm for accurate rate limiting.
+        
         Args:
             request: FastAPI request object
             max_requests: Maximum requests allowed in time window
             window_seconds: Time window in seconds
             lockout_duration_minutes: How long to lock out after exceeding limit
+            
+        Raises:
+            HTTPException: 429 if rate limit exceeded
         """
-        # Get client IP
-        client_ip = request.client.host
+        # Get client identifier
+        client_ip = self.get_client_identifier(request)
         endpoint = request.url.path
+        
+        logger.debug(f"Rate limit check: {client_ip} -> {endpoint}")
         
         # Check if IP is locked out
         if self._is_locked_out(client_ip, endpoint):
@@ -77,10 +121,25 @@ class RateLimiter:
         if request_count > max_requests:
             # Lock out the IP
             self._lockout_ip(client_ip, endpoint, lockout_duration_minutes)
+            logger.warning(
+                f"Rate limit exceeded: {client_ip} -> {endpoint} "
+                f"({request_count} requests in {window_seconds}s). "
+                f"Locked out for {lockout_duration_minutes} minutes."
+            )
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"Rate limit exceeded. Too many requests. Locked out for {lockout_duration_minutes} minutes."
+                detail=f"Rate limit exceeded. Too many requests. Locked out for {lockout_duration_minutes} minutes.",
+                headers={
+                    "Retry-After": str(lockout_duration_minutes * 60),
+                    "X-RateLimit-Limit": str(max_requests),
+                    "X-RateLimit-Remaining": "0",
+                    "X-RateLimit-Reset": str(int((datetime.now() + timedelta(minutes=lockout_duration_minutes)).timestamp()))
+                }
             )
+        
+        # Add rate limit info to response headers (for debugging)
+        remaining = max_requests - request_count
+        logger.debug(f"Rate limit OK: {client_ip} -> {endpoint} ({request_count}/{max_requests} requests)")
         
         return True
 

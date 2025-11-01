@@ -1,14 +1,20 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
 import { User, Token } from '../types';
 import apiClient from '../services/api';
 
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
+  isAuthenticated: boolean;
+  error: string | null;
   login: (username: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
+  register: (username: string, email: string, password: string) => Promise<void>;
+  refreshUser: () => Promise<void>;
   hasPermission: (permission: string) => boolean;
   hasRole: (role: string) => boolean;
+  hasAnyRole: (roles: string[]) => boolean;
+  clearError: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -28,15 +34,27 @@ interface AuthProviderProps {
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const clearError = useCallback(() => setError(null), []);
+
+  const refreshUser = useCallback(async () => {
+    try {
+      const response = await apiClient.get('/auth/me');
+      setUser(response.data as User);
+      setError(null);
+    } catch (err: any) {
+      console.error('Failed to refresh user:', err);
+      throw err;
+    }
+  }, []);
 
   useEffect(() => {
     const initAuth = async () => {
       const token = localStorage.getItem('access_token');
       if (token) {
         try {
-          // Verify token and get user info
-          const response = await apiClient.get('/auth/me');
-          setUser(response.data as User);
+          await refreshUser();
         } catch (error) {
           // Token is invalid, clear it
           localStorage.removeItem('access_token');
@@ -48,10 +66,13 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     };
 
     initAuth();
-  }, []);
+  }, [refreshUser]);
 
-  const login = async (username: string, password: string) => {
+  const login = useCallback(async (username: string, password: string) => {
     try {
+      setIsLoading(true);
+      setError(null);
+      
       const response = await apiClient.login(username, password);
       const { access_token, refresh_token }: Token = response.data;
       
@@ -59,17 +80,46 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       localStorage.setItem('refresh_token', refresh_token);
       
       // Get user info
-      const userResponse = await apiClient.get('/auth/me');
-      setUser(userResponse.data as User);
-    } catch (error) {
-      throw error;
+      await refreshUser();
+    } catch (err: any) {
+      const errorMessage = err?.response?.data?.detail || 'Login failed. Please check your credentials.';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setIsLoading(false);
     }
-  };
+  }, [refreshUser]);
 
-  const logout = () => {
-    apiClient.logout();
-    setUser(null);
-  };
+  const register = useCallback(async (username: string, email: string, password: string) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      await apiClient.post('/auth/register', { username, email, password });
+      
+      // Auto login after register
+      await login(username, password);
+    } catch (err: any) {
+      const errorMessage = err?.response?.data?.detail || 'Registration failed. Please try again.';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [login]);
+
+  const logout = useCallback(async () => {
+    try {
+      await apiClient.logout();
+    } catch (err) {
+      console.error('Logout error:', err);
+    } finally {
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
+      setUser(null);
+      setError(null);
+    }
+  }, []);
 
   const hasPermission = (permission: string): boolean => {
     if (!user) return false;
@@ -108,17 +158,28 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     return rolePermissions[user.role as keyof typeof rolePermissions]?.includes(permission) || false;
   };
 
-  const hasRole = (role: string): boolean => {
+  const hasRole = useCallback((role: string): boolean => {
     return user?.role === role;
-  };
+  }, [user]);
+
+  const hasAnyRole = useCallback((roles: string[]): boolean => {
+    if (!user) return false;
+    return roles.includes(user.role);
+  }, [user]);
 
   const value: AuthContextType = {
     user,
     isLoading,
+    isAuthenticated: !!user,
+    error,
     login,
     logout,
+    register,
+    refreshUser,
     hasPermission,
     hasRole,
+    hasAnyRole,
+    clearError,
   };
 
   return (

@@ -6,10 +6,21 @@ const config = require('../utils/config');
 
 class FabricConnectionService {
   constructor() {
-    this.gateway = null;
+    this.gateways = new Map(); // Connection pool: key = channelName
     this.wallet = null;
     this.connectionProfile = null;
     this.isConnected = false;
+    this.maxConnections = parseInt(process.env.FABRIC_MAX_CONNECTIONS) || 10;
+    this.connectionTimeout = parseInt(process.env.FABRIC_CONNECTION_TIMEOUT) || 30000;
+    this.healthCheckInterval = null;
+    this.healthStatus = { status: 'unknown', lastCheck: null };
+    this.metrics = {
+      totalConnections: 0,
+      activeConnections: 0,
+      failedConnections: 0,
+      totalRequests: 0,
+      failedRequests: 0,
+    };
   }
 
   async initialize() {
@@ -52,62 +63,171 @@ class FabricConnectionService {
         : path.join(__dirname, '../../wallet');
       this.wallet = await Wallets.newFileSystemWallet(walletPath);
 
-      logger.info('Fabric connection service initialized');
+      logger.info('Fabric connection service initialized with connection pool (max: ' + this.maxConnections + ')');
+      
+      // Start health check monitoring
+      this.startHealthMonitoring();
     } catch (error) {
       logger.error('Failed to initialize fabric connection:', error);
       throw error;
     }
   }
 
-  async connect() {
+  /**
+   * Get or create gateway connection with pooling
+   * @param {string} channelName - Channel name for connection key
+   * @returns {Promise<Gateway>} Gateway instance
+   */
+  async connect(channelName = config.FABRIC_CHANNEL_NAME) {
+    const startTime = Date.now();
+    
     try {
-      if (this.isConnected && this.gateway) {
-        return this.gateway;
+      // Check pool size limit
+      if (this.gateways.size >= this.maxConnections && !this.gateways.has(channelName)) {
+        logger.warn(`Connection pool full (${this.gateways.size}/${this.maxConnections}), reusing connections`);
+        // Return first available gateway
+        return this.gateways.values().next().value.gateway;
       }
 
-      this.gateway = new Gateway();
+      // Return existing connection if available
+      if (this.gateways.has(channelName)) {
+        const conn = this.gateways.get(channelName);
+        conn.lastUsed = Date.now();
+        logger.debug(`Reusing existing connection for channel: ${channelName}`);
+        return conn.gateway;
+      }
+
+      // Create new connection
+      const gateway = new Gateway();
       
-      await this.gateway.connect(this.connectionProfile, {
+      const connectPromise = gateway.connect(this.connectionProfile, {
         wallet: this.wallet,
         identity: config.FABRIC_IDENTITY,
         discovery: { 
           enabled: true, 
           asLocalhost: config.FABRIC_AS_LOCALHOST 
         },
+        eventHandlerOptions: {
+          commitTimeout: 300,
+          strategy: null, // Use default strategy
+        },
+      });
+
+      // Add timeout
+      await Promise.race([
+        connectPromise,
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Connection timeout')), this.connectionTimeout)
+        ),
+      ]);
+
+      // Store in pool
+      this.gateways.set(channelName, {
+        gateway,
+        channelName,
+        createdAt: Date.now(),
+        lastUsed: Date.now(),
+        requestCount: 0,
       });
 
       this.isConnected = true;
-      logger.info('Connected to Fabric network');
+      this.metrics.totalConnections++;
+      this.metrics.activeConnections = this.gateways.size;
+      
+      const duration = Date.now() - startTime;
+      logger.info(`Connected to Fabric network (channel: ${channelName}) in ${duration}ms`);
 
-      return this.gateway;
+      return gateway;
     } catch (error) {
-      logger.error('Failed to connect to Fabric network:', error);
+      const duration = Date.now() - startTime;
+      logger.error(`Failed to connect to Fabric network after ${duration}ms:`, error.message);
+      this.metrics.failedConnections++;
       this.isConnected = false;
       throw error;
     }
   }
 
-  async disconnect() {
+  /**
+   * Disconnect specific gateway or all gateways
+   * @param {string} channelName - Optional channel name to disconnect specific gateway
+   */
+  async disconnect(channelName = null) {
     try {
-      if (this.gateway && this.isConnected) {
-        await this.gateway.disconnect();
-        this.gateway = null;
+      if (channelName) {
+        // Disconnect specific gateway
+        const conn = this.gateways.get(channelName);
+        if (conn) {
+          await conn.gateway.disconnect();
+          this.gateways.delete(channelName);
+          logger.info(`Disconnected from channel: ${channelName}`);
+        }
+      } else {
+        // Disconnect all gateways
+        for (const [name, conn] of this.gateways.entries()) {
+          try {
+            await conn.gateway.disconnect();
+            logger.info(`Disconnected from channel: ${name}`);
+          } catch (err) {
+            logger.error(`Error disconnecting from channel ${name}:`, err.message);
+          }
+        }
+        this.gateways.clear();
         this.isConnected = false;
-        logger.info('Disconnected from Fabric network');
+        logger.info('Disconnected all Fabric gateways');
       }
+      
+      this.metrics.activeConnections = this.gateways.size;
     } catch (error) {
       logger.error('Error disconnecting from Fabric network:', error);
     }
   }
 
+  /**
+   * Clean up idle connections
+   * @param {number} maxIdleTime - Max idle time in ms (default: 5 minutes)
+   */
+  async cleanupIdleConnections(maxIdleTime = 5 * 60 * 1000) {
+    const now = Date.now();
+    let cleaned = 0;
+
+    for (const [name, conn] of this.gateways.entries()) {
+      if (now - conn.lastUsed > maxIdleTime) {
+        try {
+          await conn.gateway.disconnect();
+          this.gateways.delete(name);
+          cleaned++;
+          logger.info(`Cleaned up idle connection for channel: ${name}`);
+        } catch (err) {
+          logger.error(`Error cleaning up connection for ${name}:`, err.message);
+        }
+      }
+    }
+
+    if (cleaned > 0) {
+      this.metrics.activeConnections = this.gateways.size;
+      logger.info(`Cleaned up ${cleaned} idle connections`);
+    }
+
+    return cleaned;
+  }
+
   async getContract(channelName = config.FABRIC_CHANNEL_NAME, chaincodeName = config.FABRIC_CHAINCODE_NAME) {
     try {
-      const gateway = await this.connect();
+      this.metrics.totalRequests++;
+      const gateway = await this.connect(channelName);
       const network = await gateway.getNetwork(channelName);
       const contract = network.getContract(chaincodeName);
       
+      // Update connection stats
+      const conn = this.gateways.get(channelName);
+      if (conn) {
+        conn.requestCount++;
+        conn.lastUsed = Date.now();
+      }
+      
       return contract;
     } catch (error) {
+      this.metrics.failedRequests++;
       logger.error('Failed to get contract:', error);
       throw error;
     }
@@ -115,11 +235,20 @@ class FabricConnectionService {
 
   async getNetwork(channelName = config.FABRIC_CHANNEL_NAME) {
     try {
-      const gateway = await this.connect();
+      this.metrics.totalRequests++;
+      const gateway = await this.connect(channelName);
       const network = await gateway.getNetwork(channelName);
+      
+      // Update connection stats
+      const conn = this.gateways.get(channelName);
+      if (conn) {
+        conn.requestCount++;
+        conn.lastUsed = Date.now();
+      }
       
       return network;
     } catch (error) {
+      this.metrics.failedRequests++;
       logger.error('Failed to get network:', error);
       throw error;
     }
@@ -437,29 +566,122 @@ class FabricConnectionService {
   async healthCheck() {
     try {
       // Kết nối và xác nhận có thể lấy được network theo channel
-      await this.connect();
       const channelName = config.FABRIC_CHANNEL_NAME;
-      const network = await this.getNetwork(channelName);
-      // Gọi nhẹ để xác nhận kết nối (không phụ thuộc queryInfo)
+      const gateway = await this.connect(channelName);
+      const network = await gateway.getNetwork(channelName);
+      
+      // Gọi nhẹ để xác nhận kết nối
       const channel = network.getChannel();
       if (!channel) {
         throw new Error(`Cannot access channel: ${channelName}`);
       }
 
-      return {
+      // Try to get channel info as deeper check
+      let channelHeight = null;
+      try {
+        const info = await channel.queryInfo();
+        channelHeight = info.height.toString();
+      } catch (err) {
+        logger.warn('Could not query channel info during health check:', err.message);
+      }
+
+      this.healthStatus = {
         status: 'healthy',
         connected: this.isConnected,
         channel: channelName,
-        timestamp: new Date().toISOString()
+        channelHeight,
+        lastCheck: new Date().toISOString(),
       };
+
+      return this.healthStatus;
     } catch (error) {
       logger.error('Fabric health check failed:', error);
-      return {
+      
+      this.healthStatus = {
         status: 'unhealthy',
         connected: false,
         error: error.message,
-        timestamp: new Date().toISOString()
+        lastCheck: new Date().toISOString(),
       };
+
+      return this.healthStatus;
+    }
+  }
+
+  /**
+   * Start automatic health monitoring
+   * @param {number} interval - Check interval in ms (default: 30 seconds)
+   */
+  startHealthMonitoring(interval = 30000) {
+    if (this.healthCheckInterval) {
+      logger.warn('Health monitoring already running');
+      return;
+    }
+
+    this.healthCheckInterval = setInterval(async () => {
+      await this.healthCheck();
+      await this.cleanupIdleConnections();
+    }, interval);
+
+    logger.info(`Health monitoring started (interval: ${interval}ms)`);
+  }
+
+  /**
+   * Stop automatic health monitoring
+   */
+  stopHealthMonitoring() {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
+      logger.info('Health monitoring stopped');
+    }
+  }
+
+  /**
+   * Get connection pool metrics
+   * @returns {Object} Metrics data
+   */
+  getMetrics() {
+    const connections = [];
+    for (const [name, conn] of this.gateways.entries()) {
+      connections.push({
+        channel: name,
+        createdAt: new Date(conn.createdAt).toISOString(),
+        lastUsed: new Date(conn.lastUsed).toISOString(),
+        requestCount: conn.requestCount,
+        idleTime: Date.now() - conn.lastUsed,
+      });
+    }
+
+    return {
+      ...this.metrics,
+      poolSize: this.gateways.size,
+      maxConnections: this.maxConnections,
+      healthStatus: this.healthStatus,
+      connections,
+      successRate: this.metrics.totalRequests > 0
+        ? ((this.metrics.totalRequests - this.metrics.failedRequests) / this.metrics.totalRequests * 100).toFixed(2) + '%'
+        : '0%',
+      connectionSuccessRate: this.metrics.totalConnections > 0
+        ? ((this.metrics.totalConnections - this.metrics.failedConnections) / this.metrics.totalConnections * 100).toFixed(2) + '%'
+        : '0%',
+    };
+  }
+
+  /**
+   * Graceful shutdown
+   */
+  async shutdown() {
+    try {
+      logger.info('Shutting down Fabric connection service...');
+      
+      this.stopHealthMonitoring();
+      await this.disconnect();
+      
+      logger.info('Fabric connection service shut down successfully');
+    } catch (error) {
+      logger.error('Error during shutdown:', error);
+      throw error;
     }
   }
 }

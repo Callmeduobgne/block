@@ -5,10 +5,14 @@ const config = require('../utils/config');
 
 class AuthController {
   async login(req, res, next) {
+    const startTime = Date.now();
+    const clientIp = req.ip || req.connection.remoteAddress;
+    
     try {
       // Validate input
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
+        logger.warn(`Validation failed for login from ${clientIp}:`, errors.array());
         return res.status(400).json({
           success: false,
           error: 'Validation failed',
@@ -17,14 +21,27 @@ class AuthController {
       }
 
       const { username, password } = req.body;
+      
+      logger.info(`Login attempt for user: ${username} from ${clientIp}`);
 
       // Authenticate user
       const user = await authService.authenticateUser(username, password);
       if (!user) {
-        logger.warn(`Failed login attempt for username: ${username}`);
+        logger.warn(`Failed login attempt for username: ${username} from ${clientIp}`);
         return res.status(401).json({
           success: false,
           error: 'Invalid credentials',
+          message: 'Username or password is incorrect',
+        });
+      }
+
+      // Check if user is active
+      if (user.status !== 'active') {
+        logger.warn(`Login attempt for inactive user: ${username}`);
+        return res.status(403).json({
+          success: false,
+          error: 'Account inactive',
+          message: 'Your account has been deactivated. Please contact administrator.',
         });
       }
 
@@ -34,7 +51,19 @@ class AuthController {
       // Store refresh token
       await authService.storeRefreshToken(user.id, refreshToken);
 
-      logger.info(`User ${username} logged in successfully`);
+      // Update last login
+      await authService.updateLastLogin(user.id, clientIp);
+
+      const duration = Date.now() - startTime;
+      logger.info(`User ${username} logged in successfully in ${duration}ms`);
+
+      // Set HttpOnly cookie for refresh token
+      res.cookie('refreshToken', refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      });
 
       res.json({
         success: true,
@@ -53,7 +82,8 @@ class AuthController {
         },
       });
     } catch (error) {
-      logger.error('Login error:', error);
+      const duration = Date.now() - startTime;
+      logger.error(`Login error after ${duration}ms:`, { error: error.message, stack: error.stack, clientIp });
       next(error);
     }
   }
