@@ -1,0 +1,139 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: block_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gateway_user
+      POSTGRES_PASSWORD: gateway_password
+      POSTGRES_DB: blockchain_gateway
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - block-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: block_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - block-net
+
+  backend:
+    build:
+      context: ./backend
+    container_name: block_backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://gateway_user:gateway_password@postgres:5432/blockchain_gateway
+      DATABASE_URL_ASYNC: postgresql+asyncpg://gateway_user:gateway_password@postgres:5432/blockchain_gateway
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-super-secret-change-me}
+      BACKEND_CORS_ORIGINS: http://localhost:3000,http://localhost:4000
+    volumes:
+      - ./backend:/app
+      - ./uploads:/app/uploads
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    networks:
+      - block-net
+
+  api-gateway:
+    build:
+      context: ./gateway/api-gateway
+    container_name: block_api_gateway
+    restart: unless-stopped
+    env_file:
+      - ./gateway/api-gateway/.env
+    environment:
+      PORT: 3000
+      BACKEND_BASE_URL: http://backend:8000
+      FABRIC_GATEWAY_URL: http://fabric-gateway:3001
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./gateway/api-gateway/logs:/app/logs
+    depends_on:
+      backend:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      fabric-gateway:
+        condition: service_started
+    ports:
+      - "4000:3000"
+    networks:
+      - block-net
+
+  fabric-gateway:
+    build:
+      context: ./gateway/fabric-gateway
+    container_name: block_fabric_gateway
+    restart: unless-stopped
+    env_file:
+      - ./gateway/fabric-gateway/.env
+    environment:
+      FABRIC_GATEWAY_PORT: 3001
+      FABRIC_CA_URL: http://ibn-core-ca:7054
+      FABRIC_AS_LOCALHOST: "true"
+    volumes:
+      - ./gateway/fabric-gateway/crypto:/app/crypto:ro
+      - fabric-wallet:/app/wallet
+      - ./gateway/fabric-gateway/logs:/app/logs
+    depends_on:
+      - backend
+    ports:
+      - "3001:3001"
+    networks:
+      - block-net
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: block_frontend
+    restart: unless-stopped
+    environment:
+      REACT_APP_API_BASE_URL: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "3000:80"
+    networks:
+      - block-net
+
+volumes:
+  postgres-data:
+  redis-data:
+  fabric-wallet:
+
+networks:
+  block-net:
+    driver: bridge
+
