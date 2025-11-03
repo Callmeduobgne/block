@@ -7,12 +7,14 @@ services:
       POSTGRES_USER: gateway_user
       POSTGRES_PASSWORD: gateway_password
       POSTGRES_DB: blockchain_gateway
+      POSTGRES_MULTIPLE_DATABASES: blockchain_gateway,gateway_db
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d blockchain_gateway"]
       interval: 10s
       timeout: 5s
       retries: 5

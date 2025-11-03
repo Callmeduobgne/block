@@ -18,6 +18,9 @@ const logger = require('./utils/logger');
 
 const app = express();
 
+// Trust proxy for rate limiting and X-Forwarded-* headers
+app.set('trust proxy', true);
+
 // Security middleware
 if (config.HELMET_ENABLED) {
   app.use(helmet({
