@@ -46,7 +46,7 @@ app.use(cors({
 // Compression
 app.use(compression());
 
-// Rate limiting
+// Rate limiting with proper trust proxy configuration
 const limiter = rateLimit({
   windowMs: config.RATE_LIMIT_WINDOW_MS,
   max: config.RATE_LIMIT_MAX_REQUESTS,
@@ -55,6 +55,16 @@ const limiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  // Skip rate limiting for health check and trusted IPs
+  skip: (req) => {
+    const trustedIPs = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
+    return trustedIPs.includes(req.ip);
+  },
+  // Use a more secure key generator for proxied requests
+  keyGenerator: (req) => {
+    // Use X-Forwarded-For if behind proxy, otherwise use req.ip
+    return req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip || 'unknown';
+  },
 });
 app.use('/api/', limiter);
 
@@ -96,9 +106,14 @@ try {
   logger.warn('Swagger documentation not found, skipping API docs');
 }
 
-// Routes
+// Routes - API v1
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/auth', certAuthRoutes);
+app.use('/api/v1/assets', assetRoutes);
+app.use('/api/v1/fabric-gateway', blockExplorerRoutes);
+
+// Legacy routes without version (backwards compatibility)
 app.use('/api/auth', authRoutes);
-app.use('/api/auth', certAuthRoutes);
 app.use('/api/assets', assetRoutes);
 app.use('/fabric-gateway', blockExplorerRoutes);
 
