@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.database import Base
 from app.models import User, Chaincode, Channel, Project
-from app.utils.security import hash_password
+from app.utils.security import get_password_hash
 import uuid
 from datetime import datetime
 import os
@@ -41,7 +41,7 @@ def seed_database():
                 id=uuid.uuid4(),
                 username="admin",
                 email="admin@blockchain-gateway.com",
-                password_hash=hash_password(admin_password),
+                password_hash=get_password_hash(admin_password),
                 role="ADMIN",
                 organization="Platform Admin",
                 status="active",
@@ -58,7 +58,7 @@ def seed_database():
                 id=uuid.uuid4(),
                 username="orgadmin",
                 email="orgadmin@org1.example.com",
-                password_hash=hash_password("OrgAdmin@123"),
+                password_hash=get_password_hash("OrgAdmin@123"),
                 role="ORG_ADMIN",
                 msp_id="Org1MSP",
                 organization="Org1",
@@ -76,7 +76,7 @@ def seed_database():
                 id=uuid.uuid4(),
                 username="user1",
                 email="user1@org1.example.com",
-                password_hash=hash_password("User@123"),
+                password_hash=get_password_hash("User@123"),
                 role="USER",
                 msp_id="Org1MSP",
                 organization="Org1",
@@ -97,14 +97,14 @@ def seed_database():
         else:
             # Create sample channels
             print("📺 Creating sample channels...")
+            admin_id = admin_user.id if not existing_admin else existing_admin.id
             channel1 = Channel(
                 id=uuid.uuid4(),
                 name="mychannel",
                 description="Default application channel",
                 organizations=["Org1MSP", "Org2MSP"],
-                orderer_url="orderer.example.com:7050",
                 status="active",
-                created_by=admin_user.id if not existing_admin else existing_admin.id,
+                creator_id=admin_id,
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow()
             )
@@ -115,9 +115,8 @@ def seed_database():
                 name="testchannel",
                 description="Testing channel",
                 organizations=["Org1MSP"],
-                orderer_url="orderer.example.com:7050",
                 status="active",
-                created_by=admin_user.id if not existing_admin else existing_admin.id,
+                creator_id=admin_id,
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow()
             )
@@ -135,11 +134,11 @@ def seed_database():
             project1 = Project(
                 id=uuid.uuid4(),
                 name="Asset Transfer Project",
-                description="Basic asset transfer chaincode project",
-                channel_name="mychannel",
-                organization="Org1",
+                description="Basic asset transfer chaincode project for mychannel on Org1",
+                project_type="blockchain",
                 status="active",
-                created_by=admin_user.id if not existing_admin else existing_admin.id,
+                creator_id=admin_user.id if not existing_admin else existing_admin.id,
+                settings={"channel": "mychannel", "organization": "Org1"},
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow()
             )
