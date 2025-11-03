@@ -12,6 +12,9 @@ const config = {
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '24h',
   JWT_REFRESH_EXPIRES_IN: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
   
+  // Backend
+  BACKEND_BASE_URL: process.env.BACKEND_BASE_URL || 'http://backend:8000',
+  
   // Fabric Gateway
   FABRIC_GATEWAY_URL: process.env.FABRIC_GATEWAY_URL || 'http://fabric-gateway:3001',
   FABRIC_GATEWAY_TIMEOUT: parseInt(process.env.FABRIC_GATEWAY_TIMEOUT) || 30000,

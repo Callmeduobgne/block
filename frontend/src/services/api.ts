@@ -193,14 +193,11 @@ class ApiClient {
 
   // Auth endpoints
   async login(username: string, password: string) {
-    const formData = new FormData();
-    formData.append('username', username);
-    formData.append('password', password);
-    
-    return this.client.post('/auth/login', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+    // API Gateway expects JSON body
+    // baseURL already includes /api/v1, so just use /auth/login
+    return this.client.post('/auth/login', {
+      username,
+      password,
     });
   }
 

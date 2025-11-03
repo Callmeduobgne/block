@@ -1,5 +1,39 @@
 # Docker Setup Guide
 
+## Architecture
+
+```
+┌─────────────┐
+│   Browser   │
+└──────┬──────┘
+       │ :3000
+┌──────▼──────────────┐
+│    Frontend         │ (Nginx)
+│  React + Tailwind   │
+└──────┬──────────────┘
+       │ /api/ → :4000
+       │ /ws/ → :8000
+       ├──────────────┐
+┌──────▼──────┐  ┌────▼────────┐
+│ API Gateway │  │  Backend    │
+│  (Express)  │◄─┤  (FastAPI)  │
+└──────┬──────┘  └─────┬───────┘
+       │               │
+       │          ┌────▼────────┐
+       │          │  PostgreSQL │
+       │          │  + Redis    │
+       │          └─────────────┘
+┌──────▼──────────┐
+│ Fabric Gateway  │ (Optional)
+│  (Hyperledger)  │
+└─────────────────┘
+```
+
+**Data Flow:**
+- Frontend → API Gateway → Backend → Database
+- Authentication: API Gateway validates JWT, Backend manages users
+- WebSocket: Direct connection Frontend ↔ Backend for real-time updates
+
 ## Khởi chạy ứng dụng
 
 ### 1. Chạy các services cơ bản (FE, BE, API Gateway, DB, Redis)

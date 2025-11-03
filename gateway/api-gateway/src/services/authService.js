@@ -27,23 +27,46 @@ class AuthService {
   async authenticateUser(username, password) {
     try {
       // Call Backend authentication endpoint
+      // Backend uses OAuth2PasswordRequestForm which expects form-urlencoded
       logger.info(`Authenticating user ${username} via backend`);
       
-      const response = await this.axiosInstance.post('/api/v1/auth/login', {
-        username,
-        password,
+      // Create form data as string (OAuth2 form-urlencoded format)
+      const formData = `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`;
+      
+      logger.info(`Sending auth request to backend: ${this.backendUrl}/api/v1/auth/login`);
+      logger.debug(`Form data: username=${username}, password=[REDACTED]`);
+      
+      const response = await this.axiosInstance.post('/api/v1/auth/login', formData, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
       });
+      
+      logger.info(`Backend auth response status: ${response.status}`);
 
-      if (response.data && response.data.user) {
+      if (response.data) {
         logger.info(`User ${username} authenticated successfully via backend`);
-        return response.data.user;
+        // Backend returns access_token, we need to construct user object
+        // Get user info from /me endpoint
+        const userResponse = await this.axiosInstance.get('/api/v1/auth/me', {
+          headers: {
+            'Authorization': `Bearer ${response.data.access_token}`,
+          },
+        });
+        
+        if (userResponse.data) {
+          return userResponse.data;
+        }
       }
 
       return null;
     } catch (error) {
       if (error.response) {
         // Backend returned error response
-        logger.warn(`Backend authentication failed for ${username}: ${error.response.status} - ${error.response.data?.message || 'Unknown error'}`);
+        logger.warn(`Backend authentication failed for ${username}: ${error.response.status}`);
+        logger.warn(`Backend error detail: ${JSON.stringify(error.response.data)}`);
+        logger.warn(`Request sent: ${error.config.data}`);
+        logger.warn(`Content-Type: ${error.config.headers['Content-Type']}`);
       } else if (error.request) {
         // No response from backend
         logger.error(`Backend not responding for authentication: ${error.message}`);

@@ -74,15 +74,21 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       setError(null);
       
       const response = await apiClient.login(username, password);
-      const { access_token, refresh_token }: Token = response.data;
       
-      localStorage.setItem('access_token', access_token);
-      localStorage.setItem('refresh_token', refresh_token);
-      
-      // Get user info
-      await refreshUser();
+      // API Gateway response format: { success, data: { user, tokens } }
+      if (response.data.success && response.data.data) {
+        const { tokens, user } = response.data.data;
+        
+        localStorage.setItem('access_token', tokens.accessToken);
+        localStorage.setItem('refresh_token', tokens.refreshToken);
+        
+        // Set user directly from response
+        setUser(user);
+      } else {
+        throw new Error(response.data.error || 'Login failed');
+      }
     } catch (err: any) {
-      const errorMessage = err?.response?.data?.detail || 'Login failed. Please check your credentials.';
+      const errorMessage = err?.response?.data?.error || err?.response?.data?.detail || 'Login failed. Please check your credentials.';
       setError(errorMessage);
       throw new Error(errorMessage);
     } finally {

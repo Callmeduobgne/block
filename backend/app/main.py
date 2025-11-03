@@ -61,9 +61,16 @@ app.add_middleware(
 )
 
 # Add trusted host middleware
+# Allow internal Docker hostnames for service-to-service communication
 app.add_middleware(
     TrustedHostMiddleware,
-    allowed_hosts=["localhost", "127.0.0.1", "*.example.com"]
+    allowed_hosts=[
+        "localhost", 
+        "127.0.0.1", 
+        "backend",  # Docker service name
+        "*.example.com",
+        "*"  # Allow all in development - RESTRICT IN PRODUCTION
+    ] if settings.DEBUG else ["localhost", "127.0.0.1", "backend", "*.example.com"]
 )
 
 

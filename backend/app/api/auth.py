@@ -107,6 +107,7 @@ def get_current_user_info(
         "username": current_user.username,
         "email": current_user.email,
         "role": current_user.role,
+        "status": current_user.status,
         "organization": current_user.organization,
         "msp_id": current_user.msp_id,
         "is_active": current_user.is_active,
