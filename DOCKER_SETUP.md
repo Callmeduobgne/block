@@ -29,6 +29,28 @@ docker compose --profile with-fabric up -d
 
 **Fabric Gateway** sẽ chạy ở: http://localhost:3001
 
+## Seed dữ liệu ban đầu
+
+Sau khi stack chạy lần đầu, cần seed admin user và sample data:
+
+```bash
+# Cách 1: Sử dụng script tự động
+./seed.sh
+
+# Cách 2: Chạy trực tiếp trong container
+docker exec -it block_backend python seed_data.py
+```
+
+**Tài khoản mặc định sau khi seed:**
+
+| Username  | Password      | Role      | Email                         |
+|-----------|---------------|-----------|-------------------------------|
+| admin     | Admin@123     | ADMIN     | admin@blockchain-gateway.com  |
+| orgadmin  | OrgAdmin@123  | ORG_ADMIN | orgadmin@org1.example.com     |
+| user1     | User@123      | USER      | user1@org1.example.com        |
+
+⚠️ **Quan trọng**: Đổi password ngay sau lần đăng nhập đầu tiên!
+
 ## Kiểm tra trạng thái
 
 ```bash
