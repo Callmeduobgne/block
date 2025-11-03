@@ -26,7 +26,7 @@ export interface TableProps<T = any> {
   hoverable?: boolean;
 }
 
-function Table<T = any>({
+export function Table<T = any>({
   columns,
   data,
   keyExtractor,

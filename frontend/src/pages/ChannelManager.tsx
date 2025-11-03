@@ -4,14 +4,15 @@ import { toast } from 'react-hot-toast';
 import { Plus, Edit, Trash2, Eye, RefreshCw, Network } from 'lucide-react';
 import apiClient from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
-import Modal from '../components/Modal';
+import { Modal } from '../components/ui';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Table } from '../components/ui/table';
+import type { TableColumn } from '../components/ui/table';
+import Select from '../components/ui/select';
 
 interface Channel {
   id: string;
@@ -177,8 +178,74 @@ const ChannelManager: React.FC = () => {
     );
   }
 
-  const channels = (channelsData?.data as any)?.channels || [];
+  const channels = ((channelsData?.data as any)?.channels || []) as Channel[];
   const stats = statsData?.data as any || { total_channels: 0, active_channels: 0, pending_channels: 0 };
+
+  const columns: TableColumn<Channel>[] = [
+    {
+      key: 'name',
+      header: 'Name',
+      className: 'font-medium',
+    },
+    {
+      key: 'description',
+      header: 'Description',
+      className: 'text-sm text-gray-600 dark:text-gray-300',
+      render: (value) => (value as string)?.trim() || 'No description',
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_, channel) => (
+        <span
+          className={`px-2 py-1 rounded-full text-xs font-medium ${
+            channel.status === 'active'
+              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+              : channel.status === 'pending'
+              ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+              : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+          }`}
+        >
+          {channel.status}
+        </span>
+      ),
+    },
+    {
+      key: 'organizations',
+      header: 'Organizations',
+      className: 'text-sm',
+      render: (_, channel) => `${channel.organizations?.length || 0} orgs`,
+    },
+    {
+      key: 'created_at',
+      header: 'Created',
+      className: 'text-sm text-gray-600 dark:text-gray-300',
+      render: (value) => new Date(value as string).toLocaleDateString(),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      className: 'w-[160px]',
+      render: (_, channel) => (
+        <div className="flex space-x-2">
+          <Button variant="ghost" size="sm" onClick={() => openDetailsModal(channel)}>
+            <Eye className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => openEditModal(channel)}>
+            <Edit className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleDeleteChannel(channel)}
+            className="text-red-600 hover:text-red-800"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="container mx-auto p-6">
@@ -230,71 +297,14 @@ const ChannelManager: React.FC = () => {
           <CardTitle className="text-lg font-semibold text-gray-700 dark:text-gray-200">Channels</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Organizations</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {channels.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-gray-500 dark:text-gray-400">
-                    No channels found.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                channels.map((channel: Channel) => (
-                  <TableRow key={channel.id}>
-                    <TableCell className="font-medium">{channel.name}</TableCell>
-                    <TableCell className="text-sm text-gray-600 dark:text-gray-300">
-                      {channel.description || 'No description'}
-                    </TableCell>
-                    <TableCell>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        channel.status === 'active' 
-                          ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                          : channel.status === 'pending'
-                          ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
-                          : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-                      }`}>
-                        {channel.status}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {channel.organizations?.length || 0} orgs
-                    </TableCell>
-                    <TableCell className="text-sm text-gray-600 dark:text-gray-300">
-                      {new Date(channel.created_at).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex space-x-2">
-                        <Button variant="ghost" size="sm" onClick={() => openDetailsModal(channel)}>
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => openEditModal(channel)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          onClick={() => handleDeleteChannel(channel)}
-                          className="text-red-600 hover:text-red-800"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+          <Table
+            columns={columns}
+            data={channels}
+            keyExtractor={(channel) => channel.id}
+            emptyMessage="No channels found."
+            striped
+            hoverable
+          />
         </CardContent>
       </Card>
 

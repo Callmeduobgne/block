@@ -175,5 +175,103 @@ export const useWebSocket = (options: UseWebSocketOptions = {}): WebSocketHookRe
   };
 };
 
+// Legacy export for backward compatibility
 export default useWebSocket;
+
+// Additional specialized hooks for specific use cases
+export interface DeploymentUpdate {
+  deployment_id: string;
+  status: string;
+  progress?: number;
+  message?: string;
+  error?: string;
+}
+
+export interface ChaincodeUpdate {
+  chaincode_id: string;
+  action: string;
+  chaincode: any;
+  message?: string;
+}
+
+export interface WebSocketMessage {
+  type: string;
+  data: any;
+  timestamp: string;
+}
+
+export const useDeploymentUpdates = (deploymentId?: string) => {
+  const [updates, setUpdates] = useState<DeploymentUpdate[]>([]);
+  const [latestUpdate, setLatestUpdate] = useState<DeploymentUpdate | null>(null);
+  const { on, off, isConnected } = useWebSocket({ autoConnect: true });
+
+  useEffect(() => {
+    if (!deploymentId || !isConnected) return;
+
+    const handleUpdate = (data: DeploymentUpdate) => {
+      if (data.deployment_id === deploymentId) {
+        setUpdates(prev => [...prev, data]);
+        setLatestUpdate(data);
+      }
+    };
+
+    on('deployment_update', handleUpdate);
+
+    return () => {
+      off('deployment_update', handleUpdate);
+    };
+  }, [deploymentId, isConnected, on, off]);
+
+  return { updates, latestUpdate };
+};
+
+export const useChaincodeUpdates = (chaincodeId?: string) => {
+  const [updates, setUpdates] = useState<ChaincodeUpdate[]>([]);
+  const [latestUpdate, setLatestUpdate] = useState<ChaincodeUpdate | null>(null);
+  const { on, off, isConnected } = useWebSocket({ autoConnect: true });
+
+  useEffect(() => {
+    if (!chaincodeId || !isConnected) return;
+
+    const handleUpdate = (data: ChaincodeUpdate) => {
+      if (data.chaincode_id === chaincodeId) {
+        setUpdates(prev => [...prev, data]);
+        setLatestUpdate(data);
+      }
+    };
+
+    on('chaincode_update', handleUpdate);
+
+    return () => {
+      off('chaincode_update', handleUpdate);
+    };
+  }, [chaincodeId, isConnected, on, off]);
+
+  return { updates, latestUpdate };
+};
+
+export const useNotifications = () => {
+  const [notifications, setNotifications] = useState<WebSocketMessage[]>([]);
+  const { on, off, isConnected } = useWebSocket({ autoConnect: true });
+
+  useEffect(() => {
+    if (!isConnected) return;
+
+    const handleNotification = (data: WebSocketMessage) => {
+      setNotifications(prev => [...prev, data]);
+    };
+
+    on('notification', handleNotification);
+
+    return () => {
+      off('notification', handleNotification);
+    };
+  }, [isConnected, on, off]);
+
+  const clearNotifications = () => {
+    setNotifications([]);
+  };
+
+  return { notifications, clearNotifications };
+};
 

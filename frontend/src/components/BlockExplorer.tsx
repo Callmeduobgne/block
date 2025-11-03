@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Cube, Hash, Clock, FileText, Search, ChevronRight, ExternalLink } from 'lucide-react';
+import { Box, Hash, Clock, FileText, Search, ChevronRight, ExternalLink } from 'lucide-react';
 import { Card, Input, Button, Badge, Table, Modal } from './ui';
 import apiClient from '../services/api';
 import toast from 'react-hot-toast';
@@ -116,7 +116,7 @@ const BlockExplorer: React.FC = () => {
       sortable: true,
       render: (value: number) => (
         <div className="flex items-center gap-2">
-          <Cube className="h-4 w-4 text-primary-600" />
+          <Box className="h-4 w-4 text-primary-600" />
           <span className="font-mono font-medium">#{value}</span>
         </div>
       ),
@@ -212,7 +212,7 @@ const BlockExplorer: React.FC = () => {
           <Card className="p-6">
             <div className="flex items-center gap-3">
               <div className="p-3 bg-primary-100 dark:bg-primary-900/20 rounded-lg">
-                <Cube className="h-6 w-6 text-primary-600" />
+                <Box className="h-6 w-6 text-primary-600" />
               </div>
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Block Height</p>

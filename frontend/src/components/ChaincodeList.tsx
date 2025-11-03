@@ -32,7 +32,7 @@ const ChaincodeList: React.FC = () => {
   const [pagination, setPagination] = useState({ skip: 0, limit: 20, total: 0 });
 
   const { user, hasPermission } = useAuth();
-  const { isConnected, on, off } = useWebSocket({ autoConnect: true });
+  const { isConnected, on, off, emit } = useWebSocket({ autoConnect: true });
 
   const fetchChaincodes = useCallback(async (showLoader = true) => {
     try {
@@ -87,7 +87,7 @@ const ChaincodeList: React.FC = () => {
         toast.success(`Chaincode ${data.chaincode.name} đã được ${data.action === 'created' ? 'tạo' : 'cập nhật'}`);
       } else if (data.action === 'deleted') {
         setChaincodes(prev => prev.filter(cc => cc.id !== data.chaincode_id));
-        toast.info('Chaincode đã được xóa');
+        toast.success('Chaincode đã được xóa');
       }
     };
 

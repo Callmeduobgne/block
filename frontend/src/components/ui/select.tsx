@@ -18,6 +18,7 @@ export interface SelectProps {
   className?: string;
   label?: string;
   required?: boolean;
+  leftIcon?: React.ReactNode;
 }
 
 const Select = React.forwardRef<HTMLButtonElement, SelectProps>(
@@ -32,6 +33,7 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(
       className,
       label,
       required = false,
+      leftIcon,
     },
     ref
   ) => {
@@ -111,13 +113,19 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(
             aria-haspopup="listbox"
             aria-expanded={isOpen}
             className={cn(
-              'relative w-full bg-white dark:bg-gray-800 border rounded-md shadow-sm pl-3 pr-10 py-2 text-left cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors',
+              'relative w-full bg-white dark:bg-gray-800 border rounded-md shadow-sm pr-10 py-2 text-left cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors',
+              leftIcon ? 'pl-10' : 'pl-3',
               error
                 ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
                 : 'border-gray-300 dark:border-gray-600',
               disabled && 'opacity-50 cursor-not-allowed bg-gray-50 dark:bg-gray-900'
             )}
           >
+            {leftIcon && (
+              <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-400">
+                {leftIcon}
+              </span>
+            )}
             <span
               className={cn(
                 'block truncate',
