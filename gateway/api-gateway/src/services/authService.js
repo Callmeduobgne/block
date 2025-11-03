@@ -1,69 +1,88 @@
 const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
+const axios = require('axios');
 const { validationResult } = require('express-validator');
 const logger = require('../utils/logger');
 const config = require('../utils/config');
 
 class AuthService {
   constructor() {
-    // In-memory user store (replace with database in production)
-    this.users = [
-      {
-        id: '1',
-        username: 'admin',
-        password: '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password
-        role: 'admin',
-        email: 'admin@blockchain.com',
-        createdAt: new Date(),
-        lastLogin: null
-      },
-      {
-        id: '2',
-        username: 'user',
-        password: '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password
-        role: 'user',
-        email: 'user@blockchain.com',
-        createdAt: new Date(),
-        lastLogin: null
-      }
-    ];
-
-    // In-memory refresh token store (replace with database in production)
+    // Backend API base URL
+    this.backendUrl = config.BACKEND_BASE_URL || 'http://backend:8000';
+    
+    // In-memory refresh token store (can be moved to Redis in production)
     this.refreshTokens = new Map();
+    
+    // Create axios instance with default config
+    this.axiosInstance = axios.create({
+      baseURL: this.backendUrl,
+      timeout: 10000,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    
+    logger.info(`AuthService initialized with backend URL: ${this.backendUrl}`);
   }
 
   async authenticateUser(username, password) {
     try {
-      const user = this.users.find(u => u.username === username);
-      if (!user) {
-        return null;
+      // Call Backend authentication endpoint
+      logger.info(`Authenticating user ${username} via backend`);
+      
+      const response = await this.axiosInstance.post('/api/v1/auth/login', {
+        username,
+        password,
+      });
+
+      if (response.data && response.data.user) {
+        logger.info(`User ${username} authenticated successfully via backend`);
+        return response.data.user;
       }
 
-      const isValidPassword = await bcrypt.compare(password, user.password);
-      if (!isValidPassword) {
-        return null;
-      }
-
-      // Update last login
-      user.lastLogin = new Date();
-
-      // Return user without password
-      const { password: _, ...userWithoutPassword } = user;
-      return userWithoutPassword;
+      return null;
     } catch (error) {
-      logger.error('Authentication error:', error);
+      if (error.response) {
+        // Backend returned error response
+        logger.warn(`Backend authentication failed for ${username}: ${error.response.status} - ${error.response.data?.message || 'Unknown error'}`);
+      } else if (error.request) {
+        // No response from backend
+        logger.error(`Backend not responding for authentication: ${error.message}`);
+      } else {
+        // Other errors
+        logger.error(`Authentication error for ${username}:`, error.message);
+      }
       return null;
     }
   }
 
   async getUserById(userId) {
-    const user = this.users.find(u => u.id === userId);
-    if (!user) {
+    try {
+      // Call Backend to get user by ID
+      const response = await this.axiosInstance.get(`/api/v1/users/${userId}`);
+      
+      if (response.data && response.data.user) {
+        return response.data.user;
+      }
+
+      return null;
+    } catch (error) {
+      logger.error(`Failed to get user ${userId} from backend:`, error.message);
       return null;
     }
+  }
 
-    const { password: _, ...userWithoutPassword } = user;
-    return userWithoutPassword;
+  async updateLastLogin(userId, clientIp) {
+    try {
+      // Call Backend to update last login
+      await this.axiosInstance.patch(`/api/v1/users/${userId}`, {
+        last_login: new Date().toISOString(),
+        last_login_ip: clientIp,
+      });
+      logger.info(`Updated last login for user ${userId}`);
+    } catch (error) {
+      // Non-critical, just log the error
+      logger.warn(`Failed to update last login for user ${userId}:`, error.message);
+    }
   }
 
   async storeRefreshToken(userId, refreshToken) {
@@ -120,69 +139,8 @@ class AuthService {
     }
   }
 
-  async createUser(userData) {
-    const { username, password, email, role = 'user' } = userData;
-    
-    // Check if user already exists
-    const existingUser = this.users.find(u => u.username === username);
-    if (existingUser) {
-      throw new Error('User already exists');
-    }
-
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Create new user
-    const newUser = {
-      id: (this.users.length + 1).toString(),
-      username,
-      password: hashedPassword,
-      email,
-      role,
-      createdAt: new Date(),
-      lastLogin: null
-    };
-
-    this.users.push(newUser);
-
-    const { password: _, ...userWithoutPassword } = newUser;
-    return userWithoutPassword;
-  }
-
-  async updateUser(userId, updateData) {
-    const userIndex = this.users.findIndex(u => u.id === userId);
-    if (userIndex === -1) {
-      throw new Error('User not found');
-    }
-
-    const user = this.users[userIndex];
-    
-    // Update allowed fields
-    if (updateData.email) user.email = updateData.email;
-    if (updateData.role) user.role = updateData.role;
-
-    this.users[userIndex] = user;
-
-    const { password: _, ...userWithoutPassword } = user;
-    return userWithoutPassword;
-  }
-
-  async deleteUser(userId) {
-    const userIndex = this.users.findIndex(u => u.id === userId);
-    if (userIndex === -1) {
-      throw new Error('User not found');
-    }
-
-    this.users.splice(userIndex, 1);
-    return true;
-  }
-
-  async getAllUsers() {
-    return this.users.map(user => {
-      const { password: _, ...userWithoutPassword } = user;
-      return userWithoutPassword;
-    });
-  }
+  // User management methods are now delegated to Backend
+  // These can be added as proxy methods if needed in the future
 }
 
 module.exports = new AuthService();
