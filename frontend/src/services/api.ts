@@ -15,7 +15,7 @@ class ApiClient {
 
   constructor() {
     this.client = axios.create({
-      baseURL: process.env.REACT_APP_API_URL || 'http://localhost:4000/api/v1',
+      baseURL: process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1',
       timeout: 30000,
       headers: {
         'Content-Type': 'application/json',
@@ -87,7 +87,8 @@ class ApiClient {
         }
 
         // Handle 401 Unauthorized - Token refresh
-        if (error.response?.status === 401 && !originalRequest._retry) {
+        // Skip refresh for refresh endpoint itself to prevent infinite loop
+        if (error.response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/auth/refresh')) {
           originalRequest._retry = true;
 
           try {
@@ -193,11 +194,15 @@ class ApiClient {
 
   // Auth endpoints
   async login(username: string, password: string) {
-    // API Gateway expects JSON body
-    // baseURL already includes /api/v1, so just use /auth/login
-    return this.client.post('/auth/login', {
-      username,
-      password,
+    // Backend OAuth2 expects form data (application/x-www-form-urlencoded)
+    const formData = new URLSearchParams();
+    formData.append('username', username);
+    formData.append('password', password);
+    
+    return this.client.post('/auth/login', formData, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
     });
   }
 
@@ -205,6 +210,10 @@ class ApiClient {
     return this.client.post('/auth/refresh', {
       refresh_token: refreshToken,
     });
+  }
+
+  async getCurrentUser() {
+    return this.client.get('/auth/me');
   }
 
   async logout() {
@@ -223,11 +232,15 @@ class ApiClient {
     status?: string;
     uploaded_by?: string;
   }) {
-    return this.client.get('/chaincode', { params });
+    return this.client.get('/chaincode/', { params });
   }
 
   async getChaincode(id: string) {
     return this.client.get(`/chaincode/${id}`);
+  }
+
+  async getChaincodeById(id: string) {
+    return this.getChaincode(id);
   }
 
   async updateChaincode(id: string, data: any) {
@@ -261,7 +274,7 @@ class ApiClient {
     status?: string;
     deployed_by?: string;
   }) {
-    return this.client.get('/deployments', { params });
+    return this.client.get('/deployments/', { params });
   }
 
   async getDeployment(id: string) {
@@ -269,25 +282,46 @@ class ApiClient {
   }
 
   // Blockchain Explorer endpoints
-  async getLedgerInfo() {
-    return this.blockchainClient.get('/fabric-gateway/ledger/info');
-  }
-
-  async getLatestBlocks(count: number = 10, channel?: string) {
-    return this.blockchainClient.get('/fabric-gateway/blocks/latest', {
-      params: { count, channel }
+  // Blockchain Explorer APIs
+  async getLedgerInfo(channel: string = 'ibnchannel') {
+    return this.client.get(`/blockchain/channel-info`, {
+      params: { channel_name: channel }
     });
   }
 
-  async getBlockByNumber(blockNumber: number, channel?: string) {
-    return this.blockchainClient.get(`/fabric-gateway/blocks/${blockNumber}`, {
-      params: { channel }
+  async getLatestBlocks(count: number = 10, channel: string = 'ibnchannel') {
+    // Backend uses pagination, convert count to page/limit
+    return this.client.get('/blockchain/blocks', {
+      params: { 
+        channel_name: channel,
+        page: 1,
+        limit: count
+      }
     });
   }
 
-  async getBlockByHash(blockHash: string, channel?: string) {
-    return this.blockchainClient.get(`/fabric-gateway/blocks/hash/${blockHash}`, {
-      params: { channel }
+  async getBlockByNumber(blockNumber: number, channel: string = 'ibnchannel') {
+    return this.client.get(`/blockchain/block/${blockNumber}`, {
+      params: { channel_name: channel }
+    });
+  }
+
+  async getBlockByHash(blockHash: string, channel: string = 'ibnchannel') {
+    // Hash search not implemented yet - use number search
+    return this.client.get(`/blockchain/blocks`, {
+      params: { channel_name: channel, page: 1, limit: 100 }
+    });
+  }
+
+  async getTransactionById(txId: string, channel: string = 'ibnchannel') {
+    return this.client.get(`/blockchain/transaction/${txId}`, {
+      params: { channel_name: channel }
+    });
+  }
+
+  async getBlockchainStatistics(channel: string = 'ibnchannel') {
+    return this.client.get('/blockchain/statistics', {
+      params: { channel_name: channel }
     });
   }
 
@@ -310,7 +344,7 @@ class ApiClient {
     role?: string;
     status?: string;
   }) {
-    return this.client.get('/users', { params });
+    return this.client.get('/users/', { params });
   }
 
   async createUser(data: any) {
@@ -345,7 +379,7 @@ class ApiClient {
     start_date?: string;
     end_date?: string;
   }) {
-    return this.client.get('/audit/logs', { params });
+    return this.client.get('/audit/logs/', { params });
   }
 
   // Channel management
@@ -353,11 +387,11 @@ class ApiClient {
     skip?: number;
     limit?: number;
   }) {
-    return this.client.get('/channels', { params });
+    return this.client.get('/channels/', { params });
   }
 
   async getChannelStats() {
-    return this.client.get('/channels/stats');
+    return this.client.get('/channels/stats/');
   }
 
   async getChannelById(id: string) {
@@ -381,11 +415,11 @@ class ApiClient {
     skip?: number;
     limit?: number;
   }) {
-    return this.client.get('/projects', { params });
+    return this.client.get('/projects/', { params });
   }
 
   async getProjectStats() {
-    return this.client.get('/projects/stats');
+    return this.client.get('/projects/stats/');
   }
 
   async getProjectById(id: string) {
@@ -424,3 +458,25 @@ class ApiClient {
 
 export const apiClient = new ApiClient();
 export default apiClient;
+
+/**
+ * Helper function to extract error message from API response
+ * Handles both simple string errors and complex object errors {message, errors, warnings}
+ */
+export const getErrorMessage = (error: any, defaultMessage: string = 'Có lỗi xảy ra'): string => {
+  const detail = error.response?.data?.detail;
+  
+  // Handle error response with {message, errors, warnings} structure
+  if (detail && typeof detail === 'object' && detail.errors) {
+    const errorMessages = Array.isArray(detail.errors) ? detail.errors.join(', ') : detail.errors;
+    return `${detail.message || defaultMessage}: ${errorMessages}`;
+  }
+  
+  // Handle simple string error
+  if (typeof detail === 'string') {
+    return detail;
+  }
+  
+  // Default fallback
+  return defaultMessage;
+};

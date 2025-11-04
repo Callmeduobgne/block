@@ -144,3 +144,19 @@ Profiles:
         - *Org1
       Capabilities:
         <<: *ApplicationCapabilities
+
+  # Fabric 2.3+ Channel Participation - Application Channel Genesis
+  ChannelParticipationAppChannel:
+    <<: *ChannelDefaults
+    Orderer:
+      <<: *OrdererDefaults
+      Organizations:
+        - *OrdererOrg
+      Capabilities:
+        <<: *OrdererCapabilities
+    Application:
+      <<: *ApplicationDefaults
+      Organizations:
+        - *Org1
+      Capabilities:
+        <<: *ApplicationCapabilities

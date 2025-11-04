@@ -11,6 +11,11 @@
 !.env.example
 !.env.production.example
 
+# Docker secrets directory
+secrets/
+*.secret
+*.password
+
 # Security reports
 security-reports/
 *.audit.json

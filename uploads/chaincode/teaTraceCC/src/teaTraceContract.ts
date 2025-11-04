@@ -139,5 +139,5 @@ export class TeaTraceContract extends Contract {
   }
 }
 
-export const contracts: Contract[] = [new TeaTraceContract()];
+export const contracts = [TeaTraceContract];
 

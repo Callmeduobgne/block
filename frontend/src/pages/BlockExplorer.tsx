@@ -116,8 +116,12 @@ const BlockExplorer: React.FC = () => {
     }
   };
 
-  const blocks = blocksData?.data?.data || [];
-  const currentBlock = blockData?.data?.data;
+  // Parse blocks - simplified (axios wraps response in .data)
+  const blocks = blocksData?.data?.data && Array.isArray(blocksData.data.data)
+    ? blocksData.data.data
+    : [];
+  
+  const currentBlock = blockData?.data;
 
   if (ledgerLoading) {
     return (
@@ -156,7 +160,7 @@ const BlockExplorer: React.FC = () => {
               <div>
                 <p className="text-sm text-blue-600 font-medium">Block Height</p>
                 <p className="text-xl font-bold text-blue-900">
-                  {ledgerInfo?.data?.data?.height || 0}
+                  {ledgerInfo?.data?.height || 0}
                 </p>
               </div>
             </div>
@@ -167,7 +171,7 @@ const BlockExplorer: React.FC = () => {
               <div>
                 <p className="text-sm text-green-600 font-medium">Current Block Hash</p>
                 <p className="text-sm font-mono text-green-900 break-all">
-                  {formatHash(ledgerInfo?.data?.data?.currentBlockHash || '')}
+                  {formatHash(ledgerInfo?.data?.currentBlockHash || '')}
                 </p>
               </div>
             </div>
@@ -178,7 +182,7 @@ const BlockExplorer: React.FC = () => {
               <div>
                 <p className="text-sm text-purple-600 font-medium">Previous Block Hash</p>
                 <p className="text-sm font-mono text-purple-900 break-all">
-                  {formatHash(ledgerInfo?.data?.data?.previousBlockHash || '')}
+                  {formatHash(ledgerInfo?.data?.previousBlockHash || '')}
                 </p>
               </div>
             </div>

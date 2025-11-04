@@ -3,7 +3,7 @@ import { useDropzone } from 'react-dropzone';
 import { useMutation, useQueryClient } from 'react-query';
 import { Upload, FileText, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import apiClient from '../services/api';
+import apiClient, { getErrorMessage } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 interface ChaincodeUploadData {
@@ -58,7 +58,7 @@ const UploadPage: React.FC = () => {
         setValidationResult(null);
       },
       onError: (error: any) => {
-        toast.error(error.response?.data?.detail || 'Upload thất bại');
+        toast.error(getErrorMessage(error, 'Upload thất bại'));
       },
     }
   );
@@ -71,12 +71,28 @@ const UploadPage: React.FC = () => {
       const isPkg = lowerName.endsWith('.tgz') || lowerName.endsWith('.tar.gz') || lowerName.endsWith('.zip');
       setIsPackageFile(isPkg);
       
+      // Auto-detect language from file extension
+      let detectedLanguage = 'golang'; // default
+      if (!isPkg) {
+        if (lowerName.endsWith('.go')) {
+          detectedLanguage = 'golang';
+        } else if (lowerName.endsWith('.js')) {
+          detectedLanguage = 'javascript';
+        } else if (lowerName.endsWith('.ts')) {
+          detectedLanguage = 'typescript';
+        } else if (lowerName.endsWith('.py')) {
+          detectedLanguage = 'python';
+        } else if (lowerName.endsWith('.java')) {
+          detectedLanguage = 'java';
+        }
+      }
+      
       // Auto-fill name from filename
       const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
       setFormData(prev => ({
         ...prev,
         name: nameWithoutExt,
-        language: isPkg ? prev.language : prev.language,
+        language: detectedLanguage,
       }));
 
       // Read file content (text for source files; for package, set a placeholder)
@@ -89,7 +105,6 @@ const UploadPage: React.FC = () => {
           setFormData(prev => ({
             ...prev,
             source_code: `ARCHIVE_TGZ:${base64String}`,
-            language: prev.language === 'golang' ? 'typescript' : prev.language,
           }));
         };
         reader.readAsArrayBuffer(file);

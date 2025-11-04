@@ -13,6 +13,7 @@ import UserManagement from './pages/UserManagement';
 import AuditLogs from './pages/AuditLogs';
 import BlockExplorer from './pages/BlockExplorer';
 import ChannelManager from './pages/ChannelManager';
+import ChaincodeDetailDashboard from './pages/ChaincodeDetailDashboard';
 import LoadingSpinner from './components/LoadingSpinner';
 
 function App() {
@@ -42,6 +43,7 @@ function App() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/upload" element={<UploadPage />} />
         <Route path="/chaincodes" element={<ChaincodeList />} />
+        <Route path="/chaincodes/:id/dashboard" element={<ChaincodeDetailDashboard />} />
         <Route path="/approvals" element={<ApprovalDashboard />} />
         <Route path="/deployments" element={<DeploymentMonitor />} />
         <Route path="/test-console" element={<TestConsole />} />

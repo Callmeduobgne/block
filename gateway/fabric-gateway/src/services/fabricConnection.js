@@ -591,20 +591,65 @@ class FabricConnectionService {
         channel: channelName,
         channelHeight,
         lastCheck: new Date().toISOString(),
+        consecutiveFailures: 0,  // Reset failure counter
       };
 
       return this.healthStatus;
     } catch (error) {
       logger.error('Fabric health check failed:', error);
       
+      // Increment failure counter
+      const consecutiveFailures = (this.healthStatus.consecutiveFailures || 0) + 1;
+      
       this.healthStatus = {
         status: 'unhealthy',
         connected: false,
         error: error.message,
         lastCheck: new Date().toISOString(),
+        consecutiveFailures,
       };
 
+      // Auto-reconnect after 3 consecutive failures
+      if (consecutiveFailures >= 3) {
+        logger.warn(`Health check failed ${consecutiveFailures} times, attempting reconnect...`);
+        await this.reconnectAll();
+      }
+
       return this.healthStatus;
+    }
+  }
+
+  /**
+   * Reconnect all gateway connections
+   * Called automatically when health checks fail repeatedly
+   */
+  async reconnectAll() {
+    try {
+      logger.info('🔄 Reconnecting all Fabric Gateway connections...');
+      
+      // Close all existing connections
+      const channelsToReconnect = Array.from(this.gateways.keys());
+      await this.disconnect();
+      
+      // Wait a bit before reconnecting
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Reconnect to each channel
+      for (const channelName of channelsToReconnect) {
+        try {
+          await this.connect(channelName);
+          logger.info(`✅ Reconnected to channel: ${channelName}`);
+        } catch (error) {
+          logger.error(`❌ Failed to reconnect to ${channelName}:`, error.message);
+        }
+      }
+      
+      // Reset failure counter after reconnect attempt
+      this.healthStatus.consecutiveFailures = 0;
+      
+      logger.info('Reconnection attempt completed');
+    } catch (error) {
+      logger.error('Reconnection failed:', error);
     }
   }
 

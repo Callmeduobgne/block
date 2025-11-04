@@ -1,5 +1,3 @@
-version: '3.7'
-
 secrets:
   fabric_ca_password:
     file: ../../secrets/fabric_ca_password

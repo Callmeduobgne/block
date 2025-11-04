@@ -23,6 +23,15 @@ class User(Base):
     private_key_pem = Column(Text)  # Private key in PEM format (encrypted)
     public_key_pem = Column(Text)   # Public key in PEM format
     organization = Column(String(100))
+    
+    # Fabric CA Enrollment
+    fabric_enrollment_id = Column(String(255), unique=True, index=True)  # CA enrollment ID
+    fabric_enrollment_secret = Column(String(255))  # Initial enrollment secret (hashed)
+    fabric_ca_name = Column(String(100), default="ca-org1")  # Which CA issued the cert
+    fabric_cert_serial = Column(String(255))  # Certificate serial number
+    fabric_cert_issued_at = Column(DateTime(timezone=True))  # When cert was issued
+    fabric_cert_expires_at = Column(DateTime(timezone=True))  # When cert expires
+    fabric_enrollment_status = Column(String(20), default="pending")  # pending, enrolled, failed, revoked
     status = Column(String(20), default="active", index=True)  # active, inactive, suspended
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)

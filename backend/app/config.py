@@ -13,8 +13,10 @@ def _read_secret_file(filepath: Optional[str]) -> Optional[str]:
         try:
             with open(filepath, 'r') as f:
                 return f.read().strip()
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to read secret file {filepath}: {str(e)}")
     return None
 
 # Read secrets early

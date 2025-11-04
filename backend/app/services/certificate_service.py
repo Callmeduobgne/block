@@ -520,18 +520,27 @@ class CertificateService:
         role: str = "user"
     ) -> Dict[str, Any]:
         """
-        Automatically register and enroll a user with Fabric CA
+        Automatically register and enroll a user with Fabric CA using new CA client
         Returns: Dict with success status, certificate info, and any errors
         """
         try:
-            logger.info(f"Starting auto-enrollment for user {username}")
+            logger.info(f"Starting auto-enrollment for user {username} with new Fabric CA client")
+            
+            # Import Fabric CA client
+            from app.services.fabric_ca_client import fabric_ca_client
+            
+            # Generate enrollment secret
+            import secrets
+            enrollment_secret = secrets.token_urlsafe(16)
             
             # Bước 1: Register user với Fabric CA
-            register_result = await self.register_user_with_ca({
-                "username": username,
-                "organization": organization,
-                "role": role
-            })
+            logger.info(f"Registering user {username} with CA")
+            register_result = await fabric_ca_client.register_user(
+                enrollment_id=username,
+                enrollment_secret=enrollment_secret,
+                user_type=role,
+                affiliation=f"{organization}.department1"
+            )
             
             if not register_result.get("success"):
                 logger.error(f"Registration failed for {username}: {register_result.get('error')}")
@@ -541,43 +550,60 @@ class CertificateService:
                     "step": "register"
                 }
             
-            secret = register_result.get("secret")
-            if not secret:
-                logger.error(f"No secret returned from registration for {username}")
-                return {
-                    "success": False,
-                    "error": "No secret returned from registration",
-                    "step": "register"
-                }
-            
-            logger.info(f"Registration successful for {username}, secret obtained")
+            logger.info(f"Registration successful for {username}")
             
             # Bước 2: Enroll user để nhận certificate
-            enroll_result = await self.enroll_user_with_ca(
-                username=username,
-                password=secret,
-                organization=organization
-            )
-            
-            if not enroll_result.get("success"):
-                logger.error(f"Enrollment failed for {username}: {enroll_result.get('error')}")
+            logger.info(f"Enrolling user {username} to get certificate")
+            try:
+                cert_pem, key_pem, token = await fabric_ca_client.enroll(
+                    enrollment_id=username,
+                    enrollment_secret=enrollment_secret
+                )
+                
+                logger.info(f"Enrollment successful for {username}")
+                
+                # Bước 3: Save certificate to database (with encryption)
+                from app.utils.encryption import get_encryptor
+                encryptor = get_encryptor()
+                
+                user = self.db.query(User).filter(User.username == username).first()
+                if user:
+                    # Encrypt private key before saving to DB
+                    encrypted_key = encryptor.encrypt(key_pem)
+                    
+                    user.certificate_pem = cert_pem  # Public cert - no need to encrypt
+                    user.private_key_pem = encrypted_key  # ✅ ENCRYPTED!
+                    user.fabric_enrollment_id = username
+                    user.fabric_enrollment_secret = enrollment_secret  # TODO: Hash this too
+                    user.fabric_ca_name = "ca-org1"
+                    user.fabric_enrollment_status = "enrolled"
+                    user.fabric_cert_issued_at = datetime.utcnow()
+                    user.fabric_cert_expires_at = datetime.utcnow() + timedelta(days=365)
+                    user.status = "active"
+                    user.is_active = True
+                    user.is_verified = True
+                    
+                    self.db.commit()
+                    self.db.refresh(user)
+                    
+                    logger.info(f"Certificate saved to database for user {username} (private key encrypted)")
+                
+                # Bước 4: Trả về thông tin certificate
+                return {
+                    "success": True,
+                    "certificate_id": username,
+                    "certificate": cert_pem,
+                    "private_key": key_pem,
+                    "message": "User successfully enrolled with Fabric CA"
+                }
+                
+            except Exception as enroll_error:
+                logger.error(f"Enrollment failed for {username}: {str(enroll_error)}", exc_info=True)
                 return {
                     "success": False,
-                    "error": f"Enrollment failed: {enroll_result.get('error', 'Unknown error')}",
+                    "error": f"Enrollment failed: {str(enroll_error)}",
                     "step": "enroll"
                 }
-            
-            logger.info(f"Enrollment successful for {username}")
-            
-            # Bước 3: Trả về thông tin certificate
-            return {
-                "success": True,
-                "certificate_id": enroll_result.get("certificate_id", username),
-                "certificate": enroll_result.get("certificate"),
-                "private_key": enroll_result.get("private_key"),
-                "public_key": enroll_result.get("public_key"),
-                "message": "User successfully enrolled with Fabric CA"
-            }
             
         except Exception as e:
             logger.error(f"Auto enroll failed for {username}: {str(e)}", exc_info=True)

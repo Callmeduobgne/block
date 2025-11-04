@@ -75,15 +75,14 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       
       const response = await apiClient.login(username, password);
       
-      // API Gateway response format: { success, data: { user, tokens } }
-      if (response.data.success && response.data.data) {
-        const { tokens, user } = response.data.data;
+      // Backend OAuth2 response format: { access_token, refresh_token, token_type }
+      if (response.data.access_token) {
+        localStorage.setItem('access_token', response.data.access_token);
+        localStorage.setItem('refresh_token', response.data.refresh_token);
         
-        localStorage.setItem('access_token', tokens.accessToken);
-        localStorage.setItem('refresh_token', tokens.refreshToken);
-        
-        // Set user directly from response
-        setUser(user);
+        // Fetch user info with the new token
+        const userResponse = await apiClient.getCurrentUser();
+        setUser(userResponse.data);
       } else {
         throw new Error(response.data.error || 'Login failed');
       }

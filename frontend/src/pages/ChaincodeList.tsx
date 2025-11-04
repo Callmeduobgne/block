@@ -9,7 +9,8 @@ import {
   Eye,
   Calendar,
   User,
-  Tag
+  Tag,
+  LayoutDashboard
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
@@ -238,13 +239,23 @@ const ChaincodeList: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <button
-                          onClick={() => setSelectedChaincode(chaincode)}
-                          className="btn-outline text-sm"
-                        >
-                          <Eye className="h-4 w-4 mr-1" />
-                          Xem
-                        </button>
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => navigate(`/chaincodes/${chaincode.id}/dashboard`)}
+                            className="btn-primary text-sm"
+                            title="Mở Dashboard"
+                          >
+                            <LayoutDashboard className="h-4 w-4 mr-1" />
+                            Dashboard
+                          </button>
+                          <button
+                            onClick={() => setSelectedChaincode(chaincode)}
+                            className="btn-outline text-sm"
+                            title="Xem chi tiết"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

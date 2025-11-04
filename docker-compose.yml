@@ -1,16 +1,30 @@
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt
+  fabric_ca_password:
+    file: ./secrets/fabric_ca_password.txt
+  encryption_key:
+    file: ./secrets/encryption_key.txt
+  service_token:
+    file: ./secrets/service_token.txt
+
 services:
   postgres:
-    image: postgres:15-alpine
+    image: postgres:15
     container_name: block_postgres
     restart: unless-stopped
+    secrets:
+      - postgres_password
     environment:
       POSTGRES_USER: gateway_user
-      POSTGRES_PASSWORD: gateway_password
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
       POSTGRES_DB: blockchain_gateway
       POSTGRES_MULTIPLE_DATABASES: blockchain_gateway,gateway_db
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     ports:
       - "5432:5432"
     healthcheck:
@@ -43,13 +57,23 @@ services:
       context: ./backend
     container_name: block_backend
     restart: unless-stopped
+    secrets:
+      - postgres_password
+      - jwt_secret
+      - encryption_key
+      - fabric_ca_password
+      - service_token
     env_file:
       - ./backend/.env
     environment:
-      DATABASE_URL: postgresql://gateway_user:gateway_password@postgres:5432/blockchain_gateway
-      DATABASE_URL_ASYNC: postgresql+asyncpg://gateway_user:gateway_password@postgres:5432/blockchain_gateway
+      # Use Docker secrets (read from files in /run/secrets/)
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      SECRET_KEY_FILE: /run/secrets/jwt_secret
+      ENCRYPTION_KEY_FILE: /run/secrets/encryption_key
+      FABRIC_CA_ADMIN_PASSWORD_FILE: /run/secrets/fabric_ca_password
+      SERVICE_TOKEN_FILE: /run/secrets/service_token
+      # Database URLs will be built from secrets in app config
       REDIS_URL: redis://redis:6379/0
-      SECRET_KEY: ${SECRET_KEY:-super-secret-change-me}
       BACKEND_CORS_ORIGINS: http://localhost:3000,http://localhost:4000
     volumes:
       - ./backend:/app
@@ -99,7 +123,7 @@ services:
     build:
       context: ./gateway/fabric-gateway
     container_name: block_fabric_gateway
-    restart: on-failure
+    restart: unless-stopped  # Auto-restart on failure
     env_file:
       - ./gateway/fabric-gateway/.env
     environment:
@@ -115,6 +139,12 @@ services:
       - ./gateway/fabric-gateway/crypto:/app/crypto:ro
       - ./gateway/fabric-gateway/wallet:/app/wallet
       - ./gateway/fabric-gateway/logs:/app/logs
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     depends_on:
       - backend
     ports:

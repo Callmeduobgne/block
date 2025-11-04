@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import time
 from app.config import settings
-from app.api import auth, chaincodes, users, deployments, certificates, channels, projects
+from app.api import auth, chaincodes, users, deployments, certificates, channels, projects, identity, blockchain
 from app.database import engine
 from app.models import *  # Import all models
 from app.middleware.security_headers import SecurityHeadersMiddleware
@@ -185,6 +185,18 @@ app.include_router(
     projects.router,
     prefix=f"{settings.API_V1_STR}/projects",
     tags=["Project Management"]
+)
+
+app.include_router(
+    identity.router,
+    prefix=f"{settings.API_V1_STR}/identity",
+    tags=["Identity Service"]
+)
+
+app.include_router(
+    blockchain.router,
+    prefix=f"{settings.API_V1_STR}/blockchain",
+    tags=["Blockchain Explorer"]
 )
 
 

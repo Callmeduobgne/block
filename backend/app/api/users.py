@@ -47,7 +47,7 @@ def create_user(
         )
 
 
-@router.get("", response_model=UserList)
+@router.get("/", response_model=UserList)
 def get_users(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),

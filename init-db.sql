@@ -1,8 +1,11 @@
--- Create databases for the application
-CREATE DATABASE IF NOT EXISTS blockchain_gateway;
-CREATE DATABASE IF NOT EXISTS gateway_db;
+-- Create additional database (blockchain_gateway is created by POSTGRES_DB env var)
+-- Check if gateway_db exists before creating
+SELECT 'CREATE DATABASE gateway_db'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'gateway_db')\gexec
 
 -- Grant permissions
-GRANT ALL PRIVILEGES ON DATABASE blockchain_gateway TO gateway_user;
-GRANT ALL PRIVILEGES ON DATABASE gateway_db TO gateway_user;
+\c blockchain_gateway
+GRANT ALL PRIVILEGES ON SCHEMA public TO gateway_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO gateway_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO gateway_user;
 
