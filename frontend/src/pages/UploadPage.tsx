@@ -72,7 +72,7 @@ const UploadPage: React.FC = () => {
       setIsPackageFile(isPkg);
       
       // Auto-detect language from file extension
-      let detectedLanguage = 'golang'; // default
+      let detectedLanguage = 'javascript'; // default for packages (most common)
       if (!isPkg) {
         if (lowerName.endsWith('.go')) {
           detectedLanguage = 'golang';
@@ -86,6 +86,7 @@ const UploadPage: React.FC = () => {
           detectedLanguage = 'java';
         }
       }
+      // Note: For .tar.gz/.tgz packages, user should manually select the correct language
       
       // Auto-fill name from filename
       const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
@@ -297,6 +298,12 @@ const UploadPage: React.FC = () => {
                 <option value="typescript">TypeScript</option>
                 <option value="java">Java</option>
               </select>
+              {isPackageFile && (
+                <p className="mt-2 text-sm text-amber-600 flex items-center">
+                  <AlertCircle className="h-4 w-4 mr-1" />
+                  Lưu ý: Kiểm tra ngôn ngữ! Chọn JavaScript nếu package chứa compiled JS, TypeScript nếu chứa source .ts
+                </p>
+              )}
             </div>
 
             <div>

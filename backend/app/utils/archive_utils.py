@@ -57,6 +57,15 @@ def extract_archive_source(source: str, destination: str, clean: bool = True) ->
             zip_file.extractall(destination)
     else:  # pragma: no cover - defensive clause
         raise ValueError(f"Unsupported archive type: {archive_type}")
+    
+    # Check for nested Fabric chaincode package (code.tar.gz inside)
+    code_tar_gz = os.path.join(destination, "code.tar.gz")
+    if os.path.exists(code_tar_gz):
+        # Extract nested archive to same directory
+        with tarfile.open(code_tar_gz, mode="r:gz") as nested_tar:
+            nested_tar.extractall(destination)
+        # Remove the nested archive file after extraction
+        os.remove(code_tar_gz)
 
 
 def find_first_source_file(
