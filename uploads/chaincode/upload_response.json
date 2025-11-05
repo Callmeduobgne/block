@@ -1,1 +1,0 @@
-{"detail":{"message":"Invalid chaincode","errors":["Missing Contract class definition"],"warnings":["Missing fabric-contract-api import","Missing Context type (recommended for TypeScript)","Missing tsconfig.json file"]}}
