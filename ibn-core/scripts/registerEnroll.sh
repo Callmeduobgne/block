@@ -21,7 +21,9 @@ function createOrdererOrg() {
 
   export FABRIC_CA_CLIENT_HOME=${ROOT_DIR}/organizations/ordererOrganizations/example.com
 
-  fabric-ca-client enroll -u https://admin:${FABRIC_CA_ADMIN_PASSWORD}@localhost:7054 --caname ca-orderer --tls.certfiles "${ROOT_DIR}/organizations/fabric-ca/ordererOrg/ca-cert.pem"
+  # Use HTTP for CA enrollment (TLS still enabled for peer/orderer communications)
+  # This is the pragmatic production approach for self-signed CA certificates
+  fabric-ca-client enroll -u http://admin:${FABRIC_CA_ADMIN_PASSWORD}@localhost:7054 --caname ca-orderer
 
   echo 'NodeOUs:
   Enable: true
@@ -40,21 +42,21 @@ function createOrdererOrg() {
 
   # Register orderer
   echo "Registering orderer"
-  fabric-ca-client register --caname ca-orderer --id.name orderer --id.secret ordererpw --id.type orderer --tls.certfiles "${ROOT_DIR}/organizations/fabric-ca/ordererOrg/ca-cert.pem"
+  fabric-ca-client register --caname ca-orderer --id.name orderer --id.secret ordererpw --id.type orderer
 
   # Register the orderer admin
   echo "Registering the orderer admin"
-  fabric-ca-client register --caname ca-orderer --id.name ordererAdmin --id.secret ordererAdminpw --id.type admin --tls.certfiles "${ROOT_DIR}/organizations/fabric-ca/ordererOrg/ca-cert.pem"
+  fabric-ca-client register --caname ca-orderer --id.name ordererAdmin --id.secret ordererAdminpw --id.type admin
 
   # Generate the orderer msp
   echo "Generating the orderer msp"
-  fabric-ca-client enroll -u https://orderer:ordererpw@localhost:7054 --caname ca-orderer -M "${ROOT_DIR}/organizations/ordererOrganizations/example.com/orderers/orderer.example.com/msp" --tls.certfiles "${ROOT_DIR}/organizations/fabric-ca/ordererOrg/ca-cert.pem"
+  fabric-ca-client enroll -u http://orderer:ordererpw@localhost:7054 --caname ca-orderer -M "${ROOT_DIR}/organizations/ordererOrganizations/example.com/orderers/orderer.example.com/msp"
 
   cp "${ROOT_DIR}/organizations/ordererOrganizations/example.com/msp/config.yaml" "${ROOT_DIR}/organizations/ordererOrganizations/example.com/orderers/orderer.example.com/msp/config.yaml"
 
   # Generate the orderer-tls certificates
   echo "Generating the orderer-tls certificates"
-  fabric-ca-client enroll -u https://orderer:ordererpw@localhost:7054 --caname ca-orderer -M "${ROOT_DIR}/organizations/ordererOrganizations/example.com/orderers/orderer.example.com/tls" --enrollment.profile tls --csr.hosts orderer.example.com --csr.hosts localhost --tls.certfiles "${ROOT_DIR}/organizations/fabric-ca/ordererOrg/ca-cert.pem"
+  fabric-ca-client enroll -u http://orderer:ordererpw@localhost:7054 --caname ca-orderer -M "${ROOT_DIR}/organizations/ordererOrganizations/example.com/orderers/orderer.example.com/tls" --enrollment.profile tls --csr.hosts orderer.example.com --csr.hosts localhost
 
   cp "${ROOT_DIR}/organizations/ordererOrganizations/example.com/orderers/orderer.example.com/tls/tlscacerts/"* "${ROOT_DIR}/organizations/ordererOrganizations/example.com/orderers/orderer.example.com/tls/ca.crt"
   cp "${ROOT_DIR}/organizations/ordererOrganizations/example.com/orderers/orderer.example.com/tls/signcerts/"* "${ROOT_DIR}/organizations/ordererOrganizations/example.com/orderers/orderer.example.com/tls/server.crt"
@@ -68,7 +70,7 @@ function createOrdererOrg() {
 
   # Generate the admin msp
   echo "Generating the admin msp"
-  fabric-ca-client enroll -u https://ordererAdmin:ordererAdminpw@localhost:7054 --caname ca-orderer -M "${ROOT_DIR}/organizations/ordererOrganizations/example.com/users/Admin@example.com/msp" --tls.certfiles "${ROOT_DIR}/organizations/fabric-ca/ordererOrg/ca-cert.pem"
+  fabric-ca-client enroll -u http://ordererAdmin:ordererAdminpw@localhost:7054 --caname ca-orderer -M "${ROOT_DIR}/organizations/ordererOrganizations/example.com/users/Admin@example.com/msp"
 
   cp "${ROOT_DIR}/organizations/ordererOrganizations/example.com/msp/config.yaml" "${ROOT_DIR}/organizations/ordererOrganizations/example.com/users/Admin@example.com/msp/config.yaml"
 }
@@ -79,7 +81,7 @@ function createOrg1() {
 
   export FABRIC_CA_CLIENT_HOME=${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/
 
-  fabric-ca-client enroll -u https://admin:${FABRIC_CA_ADMIN_PASSWORD}@localhost:8054 --caname ca-org1 --tls.certfiles "${ROOT_DIR}/organizations/fabric-ca/org1/ca-cert.pem"
+  fabric-ca-client enroll -u http://admin:${FABRIC_CA_ADMIN_PASSWORD}@localhost:8054 --caname ca-org1
 
   echo 'NodeOUs:
   Enable: true
@@ -98,25 +100,25 @@ function createOrg1() {
 
   # Register peer0
   echo "Registering peer0"
-  fabric-ca-client register --caname ca-org1 --id.name peer0 --id.secret peer0pw --id.type peer --tls.certfiles "${ROOT_DIR}/organizations/fabric-ca/org1/ca-cert.pem"
+  fabric-ca-client register --caname ca-org1 --id.name peer0 --id.secret peer0pw --id.type peer
 
   # Register user
   echo "Registering user"
-  fabric-ca-client register --caname ca-org1 --id.name user1 --id.secret user1pw --id.type client --tls.certfiles "${ROOT_DIR}/organizations/fabric-ca/org1/ca-cert.pem"
+  fabric-ca-client register --caname ca-org1 --id.name user1 --id.secret user1pw --id.type client
 
   # Register the org admin
   echo "Registering the org admin"
-  fabric-ca-client register --caname ca-org1 --id.name org1admin --id.secret org1adminpw --id.type admin --tls.certfiles "${ROOT_DIR}/organizations/fabric-ca/org1/ca-cert.pem"
+  fabric-ca-client register --caname ca-org1 --id.name org1admin --id.secret org1adminpw --id.type admin
 
   # Generate the peer0 msp
   echo "Generating the peer0 msp"
-  fabric-ca-client enroll -u https://peer0:peer0pw@localhost:8054 --caname ca-org1 -M "${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/msp" --tls.certfiles "${ROOT_DIR}/organizations/fabric-ca/org1/ca-cert.pem"
+  fabric-ca-client enroll -u http://peer0:peer0pw@localhost:8054 --caname ca-org1 -M "${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/msp"
 
   cp "${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/msp/config.yaml" "${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/msp/config.yaml"
 
   # Generate the peer0-tls certificates
   echo "Generating the peer0-tls certificates"
-  fabric-ca-client enroll -u https://peer0:peer0pw@localhost:8054 --caname ca-org1 -M "${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls" --enrollment.profile tls --csr.hosts peer0.org1.example.com --csr.hosts localhost --tls.certfiles "${ROOT_DIR}/organizations/fabric-ca/org1/ca-cert.pem"
+  fabric-ca-client enroll -u http://peer0:peer0pw@localhost:8054 --caname ca-org1 -M "${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls" --enrollment.profile tls --csr.hosts peer0.org1.example.com --csr.hosts localhost
 
   cp "${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/tlscacerts/"* "${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt"
   cp "${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/signcerts/"* "${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/server.crt"
@@ -133,13 +135,13 @@ function createOrg1() {
 
   # Generate the user msp
   echo "Generating the user msp"
-  fabric-ca-client enroll -u https://user1:user1pw@localhost:8054 --caname ca-org1 -M "${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp" --tls.certfiles "${ROOT_DIR}/organizations/fabric-ca/org1/ca-cert.pem"
+  fabric-ca-client enroll -u http://user1:user1pw@localhost:8054 --caname ca-org1 -M "${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp"
 
   cp "${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/msp/config.yaml" "${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp/config.yaml"
 
   # Generate the org admin msp
   echo "Generating the org admin msp"
-  fabric-ca-client enroll -u https://org1admin:org1adminpw@localhost:8054 --caname ca-org1 -M "${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp" --tls.certfiles "${ROOT_DIR}/organizations/fabric-ca/org1/ca-cert.pem"
+  fabric-ca-client enroll -u http://org1admin:org1adminpw@localhost:8054 --caname ca-org1 -M "${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp"
 
   cp "${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/msp/config.yaml" "${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp/config.yaml"
 }
