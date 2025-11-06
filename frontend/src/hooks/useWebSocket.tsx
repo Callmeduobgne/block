@@ -42,6 +42,8 @@ export const useWebSocket = (options: UseWebSocketOptions = {}): WebSocketHookRe
     }
 
     try {
+      // WebSocket goes directly to Backend (not through API Gateway)
+      // Backend has WebSocket service mounted at /ws
       const wsUrl = process.env.REACT_APP_WS_URL || 'http://localhost:8000';
       
       console.log('Connecting to WebSocket:', wsUrl);

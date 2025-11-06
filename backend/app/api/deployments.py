@@ -1,5 +1,10 @@
 """
 Backend Phase 3 - Deployment Routes
+
+TWO-TIER AUTHENTICATION:
+All blockchain operations in this module require BOTH:
+1. Application authentication (JWT token)
+2. Blockchain certificate (Fabric CA enrollment)
 """
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
@@ -12,6 +17,7 @@ from app.middleware.rbac import (
     get_current_user, require_org_admin, require_user, require_viewer,
     require_chaincode_deploy, require_chaincode_invoke, require_chaincode_query
 )
+from app.middleware.blockchain_auth import require_blockchain_certificate
 from app.models.user import User
 
 router = APIRouter()
@@ -22,9 +28,16 @@ async def deploy_chaincode(
     deploy_data: ChaincodeDeploy,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(require_chaincode_deploy),
+    _: User = Depends(require_blockchain_certificate),  # Tier 2: Certificate required
     db: Session = Depends(get_db)
 ):
-    """Deploy a chaincode"""
+    """
+    Deploy a chaincode to the Fabric network.
+    
+    Requires:
+    - Tier 1: Valid JWT token + chaincode_deploy permission
+    - Tier 2: Valid Fabric certificate (must be enrolled with CA)
+    """
     deployment_service = DeploymentService(db)
     
     try:
@@ -61,9 +74,16 @@ async def deploy_chaincode(
 async def invoke_chaincode(
     invoke_data: ChaincodeInvoke,
     current_user: User = Depends(require_chaincode_invoke),
+    _: User = Depends(require_blockchain_certificate),  # Tier 2: Certificate required
     db: Session = Depends(get_db)
 ):
-    """Invoke a chaincode function"""
+    """
+    Invoke a chaincode function on the Fabric network.
+    
+    Requires:
+    - Tier 1: Valid JWT token + chaincode_invoke permission
+    - Tier 2: Valid Fabric certificate (must be enrolled with CA)
+    """
     deployment_service = DeploymentService(db)
     
     try:

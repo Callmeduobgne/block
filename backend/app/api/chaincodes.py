@@ -185,6 +185,33 @@ async def query_chaincode(
     return {"message": "Chaincode queried", "function": query_data.function_name, "result": result}
 
 
+@router.post("/discover")
+async def discover_chaincodes(
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Auto-discover chaincodes from blockchain
+    Finds chaincodes deployed via CLI and syncs them to database
+    """
+    from app.services.chaincode_discovery_service import ChaincodeDiscoveryService
+    
+    discovery_service = ChaincodeDiscoveryService(db)
+    result = await discovery_service.discover_and_sync()
+    
+    if not result["success"]:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=result.get("error", "Discovery failed")
+        )
+    
+    return {
+        "message": result["message"],
+        "discovered": result["discovered"],
+        "count": result["count"]
+    }
+
+
 @router.get("/", response_model=ChaincodeList)
 def get_chaincodes(
     skip: int = Query(0, ge=0),
@@ -339,3 +366,123 @@ def reject_chaincode(
         )
     
     return chaincode
+
+
+# ============================================================================
+# FUNCTION REGISTRY ENDPOINTS - Hybrid Approach
+# Support multiple sources: Auto-parsed, Manual, History, Templates
+# ============================================================================
+
+
+@router.get("/{chaincode_id}/functions")
+def get_chaincode_functions(
+    chaincode_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all available functions for a chaincode from all sources.
+    
+    Returns functions from:
+    1. Auto-parsed metadata
+    2. Manual registry
+    3. Usage history
+    4. Quick templates
+    """
+    from app.services.function_registry_service import FunctionRegistryService
+    
+    registry_service = FunctionRegistryService(db)
+    
+    try:
+        return registry_service.get_chaincode_functions(chaincode_id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+
+
+@router.post("/{chaincode_id}/functions")
+def add_manual_function(
+    chaincode_id: UUID,
+    function_data: dict,
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Add a function to chaincode's manual registry.
+    
+    Allows users to define functions that weren't auto-discovered.
+    """
+    from app.services.function_registry_service import FunctionRegistryService
+    from app.schemas.function_registry import ChaincodeFunction
+    
+    registry_service = FunctionRegistryService(db)
+    
+    try:
+        function = ChaincodeFunction(**function_data)
+        return registry_service.add_manual_function(chaincode_id, function)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@router.delete("/{chaincode_id}/functions/{function_name}")
+def remove_manual_function(
+    chaincode_id: UUID,
+    function_name: str,
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db)
+):
+    """Remove a function from chaincode's manual registry"""
+    from app.services.function_registry_service import FunctionRegistryService
+    
+    registry_service = FunctionRegistryService(db)
+    
+    try:
+        return registry_service.remove_manual_function(chaincode_id, function_name)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+
+
+@router.post("/{chaincode_id}/functions/history")
+def record_function_call(
+    chaincode_id: UUID,
+    call_data: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Record a function call for history-based learning.
+    
+    This endpoint is called after each invoke/query to build
+    usage statistics and argument suggestions.
+    """
+    from app.services.function_registry_service import FunctionRegistryService
+    from app.schemas.function_registry import FunctionCallHistory
+    
+    registry_service = FunctionRegistryService(db)
+    
+    try:
+        call_history = FunctionCallHistory(**call_data)
+        return registry_service.record_function_call(chaincode_id, call_history)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )

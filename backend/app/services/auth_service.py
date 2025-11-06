@@ -1,5 +1,24 @@
 """
 Backend Phase 3 - Authentication Service
+
+TWO-TIER AUTHENTICATION SYSTEM:
+
+Tier 1 (This Service): Application Authentication
+- Username/Password verification
+- JWT token issuance
+- Access to dashboard, user management, viewing data
+- Does NOT require Fabric certificate
+
+Tier 2 (blockchain_auth.py): Blockchain Authorization  
+- Fabric certificate verification
+- Required ONLY for blockchain operations (invoke/query/deploy)
+- Checked by require_blockchain_certificate middleware
+
+This separation allows:
+- Users to login and use the application immediately
+- Certificate enrollment can happen after login
+- Fabric CA downtime doesn't block application access
+- Better user experience and system resilience
 """
 from datetime import datetime, timedelta
 from typing import Optional

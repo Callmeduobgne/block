@@ -274,17 +274,12 @@ router.get('/committed', async (req, res) => {
       });
     }
     
-    // This would require additional implementation
-    // For now, return a placeholder response
-    res.json({
-      success: true,
-      data: {
-        channelName,
-        peerEndpoint,
-        chaincodes: [],
-        timestamp: new Date().toISOString()
-      }
-    });
+    const result = await chaincodeLifecycleService.getCommittedChaincodes(
+      channelName,
+      peerEndpoint
+    );
+    
+    res.json(result);
     
   } catch (error) {
     logger.error('Get committed chaincodes error:', error);

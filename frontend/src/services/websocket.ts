@@ -29,7 +29,9 @@ class WebSocketService {
       return;
     }
 
-    this.socket = io(process.env.REACT_APP_WS_URL || 'ws://localhost:4000/ws', {
+    // WebSocket connects directly to Backend WebSocket service
+    // Backend has Socket.IO mounted at /ws path
+    this.socket = io(process.env.REACT_APP_WS_URL || 'http://localhost:8000', {
       auth: {
         token: token,
       },

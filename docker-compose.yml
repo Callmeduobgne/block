@@ -74,10 +74,17 @@ services:
       SERVICE_TOKEN_FILE: /run/secrets/service_token
       # Database URLs will be built from secrets in app config
       REDIS_URL: redis://redis:6379/0
-      BACKEND_CORS_ORIGINS: http://localhost:3000,http://localhost:4000
+      # CORS: Allow frontend, API Gateway, and development origins
+      BACKEND_CORS_ORIGINS: http://localhost:3000,http://localhost:4000,http://localhost:8000,http://frontend,http://api-gateway
+      # Fabric CA TLS certificate paths
+      FABRIC_CA_ORG1_TLS_CERT: /fabric-ca-certs/org1-tls-cert.pem
+      FABRIC_CA_ORDERER_TLS_CERT: /fabric-ca-certs/orderer-tls-cert.pem
     volumes:
       - ./backend:/app
       - ./uploads:/app/uploads
+      # Mount Fabric CA TLS certificates for secure communication
+      - ./ibn-core/organizations/fabric-ca/org1/tls-cert.pem:/fabric-ca-certs/org1-tls-cert.pem:ro
+      - ./ibn-core/organizations/fabric-ca/ordererOrg/tls-cert.pem:/fabric-ca-certs/orderer-tls-cert.pem:ro
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -94,6 +101,7 @@ services:
       - "8000:8000"
     networks:
       - block-net
+      - fabric-network  # Need access to Fabric CA containers
 
   api-gateway:
     build:
@@ -107,13 +115,23 @@ services:
       BACKEND_BASE_URL: http://backend:8000
       FABRIC_GATEWAY_URL: http://fabric-gateway:3001
       REDIS_URL: redis://redis:6379/0
+      NODE_ENV: production
+      # CORS origins - allow frontend
+      CORS_ORIGINS: http://localhost:3000,http://localhost:4000,http://frontend
     volumes:
       - ./gateway/api-gateway/logs:/app/logs
+      - ./gateway/api-gateway/src:/app/src  # For development hot reload
     depends_on:
       backend:
-        condition: service_started
+        condition: service_healthy  # Wait for backend to be healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s  # Give more time for backend connection
     ports:
       - "4000:3000"
     networks:
@@ -160,14 +178,22 @@ services:
       context: ./frontend
     container_name: block_frontend
     restart: unless-stopped
+    # Note: Environment variables below have NO EFFECT for production build!
+    # React app is built during 'docker build', not at container runtime.
+    # To change API URLs, edit frontend/src/services/api.ts and rebuild.
+    # These are kept for documentation purposes only.
     environment:
-      REACT_APP_API_BASE_URL: http://api-gateway:3000
-      REACT_APP_WS_URL: http://backend:8000
+      # API_URL is hardcoded in built JS: http://localhost:4000/api/v1
+      # WS_URL is hardcoded in built JS: http://localhost:8000
+      # FABRIC_URL is hardcoded in built JS: http://localhost:3001
+      INFO_API_GATEWAY: http://api-gateway:3000
+      INFO_BACKEND: http://backend:8000
+      INFO_FABRIC: http://fabric-gateway:3001
     depends_on:
       api-gateway:
-        condition: service_started
+        condition: service_healthy  # Wait for API Gateway to be ready
       backend:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "3000:80"
     networks:

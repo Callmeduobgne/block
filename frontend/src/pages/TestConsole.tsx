@@ -20,10 +20,16 @@ const TestConsole: React.FC = () => {
   const [selectedChaincode, setSelectedChaincode] = useState<any>(null);
   const [functionName, setFunctionName] = useState('');
   const [args, setArgs] = useState('');
-  const [channelName, setChannelName] = useState('mychannel');
+  const [channelName, setChannelName] = useState('ibnchannel');
   const [operationType, setOperationType] = useState<'invoke' | 'query'>('query');
   const [result, setResult] = useState<any>(null);
   const [isExecuting, setIsExecuting] = useState(false);
+  
+  // Function Registry - Hybrid Approach
+  const [availableFunctions, setAvailableFunctions] = useState<any[]>([]);
+  const [selectedFunction, setSelectedFunction] = useState<any>(null);
+  const [quickTemplates, setQuickTemplates] = useState<any[]>([]);
+  const [showFunctionList, setShowFunctionList] = useState(false);
 
   const { data: chaincodesData, isLoading: chaincodesLoading } = useQuery(
     'chaincodes-active',
@@ -79,6 +85,60 @@ const TestConsole: React.FC = () => {
 
   const chaincodes = chaincodesData?.data?.chaincodes || [];
 
+  // Load functions when chaincode is selected
+  React.useEffect(() => {
+    const loadFunctions = async () => {
+      if (selectedChaincode) {
+        try {
+          const response = await apiClient.get(`/chaincode/${selectedChaincode.id}/functions`);
+          const data: any = response.data;
+          setAvailableFunctions(data.all_functions || []);
+          setQuickTemplates(data.quick_templates || []);
+          
+          // Reset function selection when changing chaincode
+          setFunctionName('');
+          setSelectedFunction(null);
+          setArgs('');
+        } catch (error) {
+          console.error('Failed to load functions:', error);
+          setAvailableFunctions([]);
+        }
+      } else {
+        setAvailableFunctions([]);
+        setQuickTemplates([]);
+      }
+    };
+    
+    loadFunctions();
+  }, [selectedChaincode]);
+
+  // Handle function selection - Auto-fill arguments with examples
+  const handleFunctionSelect = (fnName: string) => {
+    setFunctionName(fnName);
+    
+    // Find full function object
+    const fn = availableFunctions.find(f => f.name === fnName);
+    setSelectedFunction(fn);
+    
+    if (fn && fn.parameters && fn.parameters.length > 0) {
+      // Auto-fill with example values
+      const exampleArgs = fn.parameters.map((p: any) => p.example || '').join(', ');
+      setArgs(exampleArgs);
+      
+      // Auto-set operation type
+      setOperationType(fn.is_query ? 'query' : 'invoke');
+    } else {
+      setArgs('');
+    }
+  };
+  
+  // Handle quick template selection
+  const handleTemplateSelect = (template: any) => {
+    setFunctionName(template.function_name);
+    setArgs(template.arguments.join(', '));
+    setSelectedFunction(null);
+  };
+
   const handleExecute = async () => {
     if (!selectedChaincode) {
       toast.error('Vui lòng chọn chaincode');
@@ -100,11 +160,41 @@ const TestConsole: React.FC = () => {
     };
 
     setIsExecuting(true);
+    const startTime = Date.now();
+    
     try {
       if (operationType === 'invoke') {
         await invokeMutation.mutateAsync(data);
       } else {
         await queryMutation.mutateAsync(data);
+      }
+      
+      // Record successful call to history (for learning)
+      const executionTime = Date.now() - startTime;
+      try {
+        await apiClient.post(`/chaincode/${selectedChaincode.id}/functions/history`, {
+          function_name: functionName,
+          arguments: argsArray,
+          success: true,
+          execution_time_ms: executionTime
+        });
+      } catch (historyError) {
+        console.warn('Failed to record history:', historyError);
+      }
+      
+    } catch (error: any) {
+      console.error('Execution error:', error);
+      
+      // Record failed call to history
+      try {
+        await apiClient.post(`/chaincode/${selectedChaincode.id}/functions/history`, {
+          function_name: functionName,
+          arguments: argsArray,
+          success: false,
+          error_message: error.response?.data?.detail || error.message
+        });
+      } catch (historyError) {
+        console.warn('Failed to record history:', historyError);
       }
     } finally {
       setIsExecuting(false);
@@ -232,13 +322,74 @@ const TestConsole: React.FC = () => {
 
             <div>
               <label className="label">Function Name</label>
-              <input
-                type="text"
-                className="input"
-                value={functionName}
-                onChange={(e) => setFunctionName(e.target.value)}
-                placeholder="GetAllAssets"
-              />
+              
+              {/* Function Selector - Hybrid Approach */}
+              {availableFunctions.length > 0 ? (
+                <div className="relative">
+                  <select
+                    className="input pr-10"
+                    value={functionName}
+                    onChange={(e) => handleFunctionSelect(e.target.value)}
+                  >
+                    <option value="">-- Chọn function --</option>
+                    
+                    {/* Available Functions */}
+                    <optgroup label="📦 Available Functions">
+                      {availableFunctions.map((fn: any) => (
+                        <option key={fn.name} value={fn.name}>
+                          {fn.name} {fn.is_query ? '(Query)' : '(Invoke)'} - {fn.description}
+                        </option>
+                      ))}
+                    </optgroup>
+                    
+                    {/* Quick Templates */}
+                    {quickTemplates.length > 0 && (
+                      <optgroup label="⚡ Quick Actions">
+                        {quickTemplates.map((tpl: any) => (
+                          <option key={tpl.name} value={tpl.function_name}>
+                            {tpl.icon} {tpl.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                  
+                  {/* Show function details when selected */}
+                  {selectedFunction && (
+                    <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded text-sm">
+                      <div className="font-semibold text-blue-900">{selectedFunction.name}</div>
+                      {selectedFunction.description && (
+                        <div className="text-blue-700 mt-1">{selectedFunction.description}</div>
+                      )}
+                      {selectedFunction.parameters && selectedFunction.parameters.length > 0 && (
+                        <div className="mt-2">
+                          <div className="text-blue-800 font-medium">Parameters:</div>
+                          <ul className="ml-4 mt-1 space-y-1">
+                            {selectedFunction.parameters.map((param: any, idx: number) => (
+                              <li key={idx} className="text-blue-700">
+                                <code className="bg-blue-100 px-1 rounded">{param.name}</code>
+                                <span className="text-gray-600"> ({param.type})</span>
+                                {param.example && (
+                                  <span className="text-gray-500"> - e.g., "{param.example}"</span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                // Fallback: Manual input if no functions loaded
+                <input
+                  type="text"
+                  className="input"
+                  value={functionName}
+                  onChange={(e) => setFunctionName(e.target.value)}
+                  placeholder="Nhập tên function (e.g., GetAllAssets)"
+                />
+              )}
             </div>
 
             <div>

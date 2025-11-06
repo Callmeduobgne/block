@@ -37,6 +37,134 @@ class CertificateRevokeRequest(BaseModel):
 router = APIRouter()
 
 
+# ============================================================================
+# TWO-TIER AUTHENTICATION ENDPOINTS
+# These endpoints support the Two-Tier authentication flow where users
+# login first (Tier 1), then enroll for blockchain operations (Tier 2)
+# ============================================================================
+
+
+class SelfEnrollRequest(BaseModel):
+    """Self-enrollment request - user enrolls themselves after login"""
+    organization: Optional[str] = "org1"
+
+
+@router.get("/enrollment-status")
+async def get_enrollment_status(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get current user's Fabric enrollment status.
+    Used by frontend to check if user needs to enroll for blockchain operations.
+    """
+    has_certificate = bool(current_user.certificate_pem)
+    is_enrolled = current_user.fabric_enrollment_status == "enrolled"
+    
+    return {
+        "username": current_user.username,
+        "has_certificate": has_certificate,
+        "enrollment_status": current_user.fabric_enrollment_status or "not_enrolled",
+        "is_enrolled": is_enrolled,
+        "certificate_id": current_user.certificate_id,
+        "certificate_issued_at": current_user.fabric_cert_issued_at.isoformat() if current_user.fabric_cert_issued_at else None,
+        "certificate_expires_at": current_user.fabric_cert_expires_at.isoformat() if current_user.fabric_cert_expires_at else None,
+        "msp_id": current_user.msp_id,
+        "organization": current_user.organization,
+        "can_perform_blockchain_operations": has_certificate and is_enrolled
+    }
+
+
+@router.post("/self-enroll")
+async def self_enroll_with_ca(
+    enroll_request: SelfEnrollRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Self-enrollment endpoint for logged-in users.
+    User enrolls themselves with Fabric CA to get certificate.
+    
+    This is part of Tier 2 authentication - user must complete this
+    before they can perform blockchain operations.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    print(f"!!! SELF-ENROLL ENDPOINT CALLED for user={current_user.username}, org={enroll_request.organization}")
+    logger.info(f"!!! SELF-ENROLL ENDPOINT CALLED for user={current_user.username}, org={enroll_request.organization}")
+    
+    try:
+        print("Creating CertificateService...")
+        logger.info("Creating CertificateService...")
+        certificate_service = CertificateService(db)
+        print("CertificateService created")
+        logger.info("CertificateService created")
+        
+        # Check if user is already enrolled
+        logger.info(f"Checking if user {current_user.username} already enrolled...")
+        if current_user.certificate_pem and current_user.fabric_enrollment_status == "enrolled":
+            logger.info("User already enrolled, returning success")
+            return {
+                "success": True,
+                "message": "User is already enrolled",
+                "certificate_id": current_user.certificate_id,
+                "status": "already_enrolled"
+            }
+        
+        # Auto-enroll user with Fabric CA
+        logger.info("User not yet enrolled, proceeding with enrollment...")
+        # Map application role to Fabric CA type
+        # Fabric CA only accepts: client, peer, orderer, user
+        # Map ADMIN → client (admins are special clients with more permissions)
+        role_mapping = {
+            "admin": "client",
+            "org_admin": "client",
+            "user": "client",
+            "viewer": "client"
+        }
+        fabric_role = role_mapping.get(current_user.role.lower(), "client")
+        
+        result = await certificate_service.auto_enroll_user(
+            username=current_user.username,
+            organization=enroll_request.organization or current_user.organization or "org1",
+            role=fabric_role
+        )
+        
+        if result.get("success"):
+            return {
+                "success": True,
+                "message": "Enrollment successful! You can now perform blockchain operations",
+                "certificate_id": result.get("certificate_id"),
+                "status": "enrolled"
+            }
+        else:
+            # Enrollment failed, return error
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={
+                    "error": "ENROLLMENT_FAILED",
+                    "message": result.get("error", "Failed to enroll with Fabric CA"),
+                    "details": result.get("details")
+                }
+            )
+    except Exception as e:
+        print(f"!!! EXCEPTION CAUGHT: type={type(e)}, str={str(e)}, repr={repr(e)}")
+        logger.error(f"!!! EXCEPTION in self_enroll: {type(e).__name__}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "ENROLLMENT_ERROR",
+                "message": str(e) or repr(e) or "Unknown error occurred"
+            }
+        )
+
+
+# ============================================================================
+# END TWO-TIER AUTHENTICATION ENDPOINTS
+# ============================================================================
+
+
 @router.post("/sync")
 async def sync_certificates(
     sync_request: CertificateSyncRequest,

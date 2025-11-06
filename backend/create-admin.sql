@@ -24,8 +24,8 @@ INSERT INTO users (
     'Org1MSP',
     'IBN Blockchain',
     'active',
-    true,
-    true,
+    true,   -- is_active = TRUE để có thể đăng nhập ngay
+    true,   -- is_verified = TRUE
     NOW(),
     NOW()
 );

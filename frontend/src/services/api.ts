@@ -14,8 +14,10 @@ class ApiClient {
   private readonly RETRY_STATUS_CODES = [408, 429, 500, 502, 503, 504];
 
   constructor() {
+    // Main client - Route through API Gateway for centralized management
+    // API Gateway will proxy to Backend and handle rate limiting, auth, etc.
     this.client = axios.create({
-      baseURL: process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1',
+      baseURL: process.env.REACT_APP_API_URL || 'http://localhost:4000/api/v1',
       timeout: 30000,
       headers: {
         'Content-Type': 'application/json',
@@ -23,9 +25,10 @@ class ApiClient {
       withCredentials: true, // Enable cookies for HttpOnly tokens
     });
 
-    // Separate client for blockchain explorer (via API Gateway)
+    // Blockchain client for Fabric Gateway direct access (raw blockchain data)
+    // This goes directly to Fabric Gateway for performance (bypass API Gateway)
     this.blockchainClient = axios.create({
-      baseURL: process.env.REACT_APP_API_GATEWAY_URL || 'http://localhost:8080',
+      baseURL: process.env.REACT_APP_FABRIC_URL || 'http://localhost:3001',
       timeout: 30000,
       headers: {
         'Content-Type': 'application/json',
@@ -325,14 +328,14 @@ class ApiClient {
     });
   }
 
-  // Get transaction details
+  // Get transaction details - via Fabric Gateway for raw blockchain data
   async getTransactionDetails(txId: string) {
-    return this.blockchainClient.get(`/fabric-gateway/transactions/${txId}`);
+    return this.blockchainClient.get(`/api/blockchain/transactions/${txId}`);
   }
 
-  // Get raw block JSON
+  // Get raw block JSON - via Fabric Gateway for raw blockchain data
   async getRawBlockJson(blockNumber: number) {
-    return this.blockchainClient.get(`/fabric-gateway/blocks/${blockNumber}/raw`, {
+    return this.blockchainClient.get(`/api/blockchain/blocks/${blockNumber}/raw`, {
       responseType: 'text'
     });
   }

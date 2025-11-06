@@ -30,14 +30,35 @@ class CertificateService:
         self._ca_hostname = self._resolve_ca_hostname()
         # Read Fabric CA admin password from env or secret file
         admin_pw_file = os.getenv("FABRIC_CA_ADMIN_PASSWORD_FILE")
+        print(f"!!! [CertService.__init__] FABRIC_CA_ADMIN_PASSWORD_FILE={admin_pw_file}")
         admin_pw = None
         if admin_pw_file and os.path.exists(admin_pw_file):
             try:
                 with open(admin_pw_file, "r") as f:
                     admin_pw = f.read().strip()
-            except Exception:
+                print(f"!!! [CertService.__init__] Password from file: {admin_pw[:10]}... (len={len(admin_pw)})")
+            except Exception as e:
+                print(f"!!! [CertService.__init__] Failed to read file: {e}")
                 admin_pw = None
-        self.fabric_ca_admin_password = os.getenv("FABRIC_CA_ADMIN_PASSWORD", admin_pw or "adminpw")
+        else:
+            print(f"!!! [CertService.__init__] Password file NOT FOUND: {admin_pw_file}")
+        
+        env_pw = os.getenv("FABRIC_CA_ADMIN_PASSWORD")
+        print(f"!!! [CertService.__init__] FABRIC_CA_ADMIN_PASSWORD env={env_pw[:10] if env_pw else 'NOT_SET'}...")
+        
+        # Priority: File password > Env var > Default
+        # This ensures secret file takes precedence over config defaults
+        if admin_pw:
+            self.fabric_ca_admin_password = admin_pw
+            print(f"!!! [CertService.__init__] Using password from FILE")
+        elif env_pw:
+            self.fabric_ca_admin_password = env_pw
+            print(f"!!! [CertService.__init__] Using password from ENV VAR")
+        else:
+            self.fabric_ca_admin_password = "adminpw"
+            print(f"!!! [CertService.__init__] Using FALLBACK password")
+        
+        print(f"!!! [CertService.__init__] FINAL PASSWORD: {self.fabric_ca_admin_password[:10]}... (len={len(self.fabric_ca_admin_password)})")
         self._admin_enrolled = False
     
     def _resolve_ca_hostname(self) -> str:
@@ -513,97 +534,263 @@ class CertificateService:
                 "error": str(e)
             }
     
-    async def auto_enroll_user(
+    def auto_enroll_user_sync(
         self, 
         username: str, 
         organization: str = "org1",
         role: str = "user"
     ) -> Dict[str, Any]:
         """
-        Automatically register and enroll a user with Fabric CA using new CA client
+        Automatically register and enroll a user with Fabric CA using CLI client.
+        
+        This is a SYNC method (not async) because fabric-ca-client is a CLI tool.
+        Uses the official fabric-ca-client CLI tool instead of HTTP libraries.
         Returns: Dict with success status, certificate info, and any errors
         """
+        logger.info(f"=== AUTO_ENROLL_USER_SYNC STARTED for {username} ===")
         try:
-            logger.info(f"Starting auto-enrollment for user {username} with new Fabric CA client")
+            logger.info(f"Starting auto-enrollment for user {username} using CLI client")
             
-            # Import Fabric CA client
-            from app.services.fabric_ca_client import fabric_ca_client
+            # Import Fabric CA CLI wrapper
+            logger.info("Importing FabricCAClient...")
+            from app.utils.fabric_ca_cli import FabricCAClient
+            logger.info("FabricCAClient imported successfully")
             
             # Generate enrollment secret
             import secrets
             enrollment_secret = secrets.token_urlsafe(16)
+            logger.info(f"Generated enrollment secret for {username}")
             
-            # Bước 1: Register user với Fabric CA
-            logger.info(f"Registering user {username} with CA")
-            register_result = await fabric_ca_client.register_user(
-                enrollment_id=username,
-                enrollment_secret=enrollment_secret,
-                user_type=role,
-                affiliation=f"{organization}.department1"
+            # Determine CA URL based on organization
+            ca_name = f"ca-{organization}"
+            ca_url = f"https://{ca_name}:8054"
+            logger.info(f"CA URL: {ca_url}, CA Name: {ca_name}")
+            
+            # Get TLS certificate path from environment
+            tls_cert_env_var = f"FABRIC_CA_{organization.upper()}_TLS_CERT"
+            tls_cert_path = os.getenv(tls_cert_env_var, f"/fabric-ca-certs/{organization}-tls-cert.pem")
+            logger.info(f"TLS cert path: {tls_cert_path}")
+            
+            # Check if TLS cert exists
+            tls_certfiles = [tls_cert_path] if os.path.exists(tls_cert_path) else []
+            
+            if not tls_certfiles:
+                logger.warning(f"TLS certificate not found at {tls_cert_path}, will skip TLS verification")
+            else:
+                logger.info(f"Using TLS certificate: {tls_cert_path}")
+            
+            # Create shared MSP directory for admin identity (will be reused for registration)
+            import tempfile
+            shared_msp_dir = tempfile.mkdtemp(prefix="admin-msp-")
+            
+            # Create CA client instance with TLS support and shared MSP
+            ca_client = FabricCAClient(
+                ca_url=ca_url,
+                ca_name=ca_name,
+                msp_dir=shared_msp_dir,  # Admin's MSP will be stored here
+                tls_certfiles=tls_certfiles
             )
             
-            if not register_result.get("success"):
-                logger.error(f"Registration failed for {username}: {register_result.get('error')}")
-                return {
-                    "success": False,
-                    "error": f"Registration failed: {register_result.get('error', 'Unknown error')}",
-                    "step": "register"
-                }
-            
-            logger.info(f"Registration successful for {username}")
-            
-            # Bước 2: Enroll user để nhận certificate
-            logger.info(f"Enrolling user {username} to get certificate")
             try:
-                cert_pem, key_pem, token = await fabric_ca_client.enroll(
-                    enrollment_id=username,
-                    enrollment_secret=enrollment_secret
+                # Check if enrolling admin (bootstrap user) or regular user
+                is_admin_user = username.lower() == "admin"
+                
+                if is_admin_user:
+                    logger.info(f"Enrolling bootstrap admin user: {username}")
+                    # Admin is already registered in CA (bootstrap), just enroll directly
+                    # Use the password from secret file as enrollment secret
+                    user_enroll_result = ca_client.enroll(
+                        enrollment_id=username,
+                        enrollment_secret=self.fabric_ca_admin_password,
+                        type="client"
+                    )
+                    
+                    if not user_enroll_result.get("success"):
+                        logger.error(f"Admin enrollment failed: {user_enroll_result.get('error')}")
+                        return {
+                            "success": False,
+                            "error": f"Admin enrollment failed: {user_enroll_result.get('error')}",
+                            "step": "admin_direct_enroll"
+                        }
+                    
+                    cert_pem = user_enroll_result.get("certificate")
+                    key_pem = user_enroll_result.get("private_key")
+                    logger.info(f"Admin {username} enrolled successfully (bootstrap user)")
+                    
+                    # Save admin certificate to database
+                    from app.utils.encryption import get_encryptor
+                    encryptor = get_encryptor()
+                    
+                    user = self.db.query(User).filter(User.username == username).first()
+                    if user:
+                        # Encrypt private key before saving
+                        encrypted_key = encryptor.encrypt(key_pem)
+                        
+                        user.certificate_pem = cert_pem
+                        user.private_key_pem = encrypted_key
+                        user.fabric_enrollment_id = username
+                        user.fabric_ca_name = ca_name
+                        user.fabric_enrollment_status = "enrolled"
+                        user.fabric_cert_issued_at = datetime.utcnow()
+                        user.fabric_cert_expires_at = datetime.utcnow() + timedelta(days=365)
+                        user.status = "active"
+                        user.is_active = True
+                        user.is_verified = True
+                        
+                        self.db.commit()
+                        self.db.refresh(user)
+                        
+                        logger.info(f"Admin certificate saved to database")
+                        
+                        return {
+                            "success": True,
+                            "certificate_id": username,
+                            "certificate": cert_pem,
+                            "private_key": key_pem,
+                            "message": "Admin successfully enrolled (bootstrap user)"
+                        }
+                    
+                else:
+                    # Regular user: Need to register first, then enroll
+                    logger.info(f"Enrolling regular user: {username}")
+                    
+                    # Step 1: Enroll admin first (needed to perform registration)
+                    logger.info("Enrolling admin to perform registration")
+                    admin_result = ca_client.enroll(
+                        enrollment_id="admin",
+                        enrollment_secret=self.fabric_ca_admin_password,
+                        type="client"
+                    )
+                    
+                    if not admin_result.get("success"):
+                        logger.error(f"Admin enrollment failed: {admin_result.get('error')}")
+                        return {
+                            "success": False,
+                            "error": f"Admin enrollment failed: {admin_result.get('error')}",
+                            "step": "admin_enroll_for_registration"
+                        }
+                    
+                    logger.info("Admin enrolled successfully")
+                    
+                    # Step 2: Register new user
+                    logger.info(f"Registering user {username} with CA")
+                    register_result = ca_client.register(
+                        enrollment_id=username,
+                        enrollment_secret=enrollment_secret,
+                        type=role if role in ["client", "peer", "orderer", "admin", "user"] else "client",
+                        affiliation=f"{organization}.department1" if organization != "org1" else "org1",
+                        max_enrollments=-1
+                    )
+                
+                if not register_result.get("success"):
+                    logger.error(f"Registration failed for {username}: {register_result.get('error')}")
+                    return {
+                        "success": False,
+                        "error": f"Registration failed: {register_result.get('error', 'Unknown error')}",
+                        "step": "register"
+                    }
+                
+                # Use returned secret (may be different from provided one)
+                actual_secret = register_result.get("secret", enrollment_secret)
+                logger.info(f"Registration successful for {username}")
+                
+                # Step 3: Enroll user to get certificate
+                logger.info(f"Enrolling user {username} to get certificate")
+                
+                # Create new CA client for user enrollment (reuse TLS cert)
+                user_ca_client = FabricCAClient(
+                    ca_url=ca_url,
+                    ca_name=ca_name,
+                    tls_certfiles=tls_certfiles
                 )
                 
-                logger.info(f"Enrollment successful for {username}")
-                
-                # Bước 3: Save certificate to database (with encryption)
-                from app.utils.encryption import get_encryptor
-                encryptor = get_encryptor()
-                
-                user = self.db.query(User).filter(User.username == username).first()
-                if user:
-                    # Encrypt private key before saving to DB
-                    encrypted_key = encryptor.encrypt(key_pem)
+                try:
+                    enroll_result = user_ca_client.enroll(
+                        enrollment_id=username,
+                        enrollment_secret=actual_secret,
+                        type="client"
+                    )
                     
-                    user.certificate_pem = cert_pem  # Public cert - no need to encrypt
-                    user.private_key_pem = encrypted_key  # ✅ ENCRYPTED!
-                    user.fabric_enrollment_id = username
-                    user.fabric_enrollment_secret = enrollment_secret  # TODO: Hash this too
-                    user.fabric_ca_name = "ca-org1"
-                    user.fabric_enrollment_status = "enrolled"
-                    user.fabric_cert_issued_at = datetime.utcnow()
-                    user.fabric_cert_expires_at = datetime.utcnow() + timedelta(days=365)
-                    user.status = "active"
-                    user.is_active = True
-                    user.is_verified = True
+                    if not enroll_result.get("success"):
+                        logger.error(f"Enrollment failed for {username}: {enroll_result.get('error')}")
+                        return {
+                            "success": False,
+                            "error": f"Enrollment failed: {enroll_result.get('error')}",
+                            "step": "enroll"
+                        }
                     
-                    self.db.commit()
-                    self.db.refresh(user)
+                    cert_pem = enroll_result.get("certificate")
+                    key_pem = enroll_result.get("private_key")
                     
-                    logger.info(f"Certificate saved to database for user {username} (private key encrypted)")
+                    logger.info(f"Enrollment successful for {username}")
+                    
+                    # Bước 3: Save certificate to database (with encryption)
+                    from app.utils.encryption import get_encryptor
+                    encryptor = get_encryptor()
+                    
+                    user = self.db.query(User).filter(User.username == username).first()
+                    if user:
+                        # Encrypt private key before saving to DB
+                        encrypted_key = encryptor.encrypt(key_pem)
+                        
+                        user.certificate_pem = cert_pem  # Public cert - no need to encrypt
+                        user.private_key_pem = encrypted_key  # ✅ ENCRYPTED!
+                        user.fabric_enrollment_id = username
+                        user.fabric_enrollment_secret = enrollment_secret  # TODO: Hash this too
+                        user.fabric_ca_name = "ca-org1"
+                        user.fabric_enrollment_status = "enrolled"
+                        user.fabric_cert_issued_at = datetime.utcnow()
+                        user.fabric_cert_expires_at = datetime.utcnow() + timedelta(days=365)
+                        user.status = "active"
+                        user.is_active = True
+                        user.is_verified = True
+                        
+                        self.db.commit()
+                        self.db.refresh(user)
+                        
+                        logger.info(f"Certificate saved to database for user {username} (private key encrypted)")
+                    
+                        # Bước 4: Trả về thông tin certificate
+                        return {
+                            "success": True,
+                            "certificate_id": username,
+                            "certificate": cert_pem,
+                            "private_key": key_pem,
+                            "message": "User successfully enrolled with Fabric CA"
+                        }
+                    
+                except Exception as enroll_error:
+                    logger.error(f"Enrollment failed for {username}: {str(enroll_error)}", exc_info=True)
+                    return {
+                        "success": False,
+                        "error": f"Enrollment failed: {str(enroll_error)}",
+                        "step": "enroll"
+                    }
                 
-                # Bước 4: Trả về thông tin certificate
-                return {
-                    "success": True,
-                    "certificate_id": username,
-                    "certificate": cert_pem,
-                    "private_key": key_pem,
-                    "message": "User successfully enrolled with Fabric CA"
-                }
+                finally:
+                    # Cleanup user CA client temp directories
+                    user_ca_client.cleanup()
                 
-            except Exception as enroll_error:
-                logger.error(f"Enrollment failed for {username}: {str(enroll_error)}", exc_info=True)
+            except Exception as register_error:
+                logger.error(f"Registration/Enrollment process failed: {str(register_error)}", exc_info=True)
                 return {
                     "success": False,
-                    "error": f"Enrollment failed: {str(enroll_error)}",
-                    "step": "enroll"
+                    "error": f"Registration/Enrollment failed: {str(register_error)}",
+                    "step": "register_or_enroll"
                 }
+            
+            finally:
+                # Cleanup admin CA client temp directories
+                ca_client.cleanup()
+                
+                # Cleanup shared MSP directory
+                import shutil
+                if os.path.exists(shared_msp_dir):
+                    try:
+                        shutil.rmtree(shared_msp_dir)
+                        logger.debug(f"Cleaned up shared MSP directory: {shared_msp_dir}")
+                    except Exception as cleanup_error:
+                        logger.warning(f"Failed to cleanup shared MSP dir: {cleanup_error}")
             
         except Exception as e:
             logger.error(f"Auto enroll failed for {username}: {str(e)}", exc_info=True)
@@ -611,4 +798,52 @@ class CertificateService:
                 "success": False,
                 "error": f"Auto enroll failed: {str(e)}",
                 "step": "unknown"
+            }
+    
+    async def auto_enroll_user(
+        self, 
+        username: str, 
+        organization: str = "org1",
+        role: str = "user"
+    ) -> Dict[str, Any]:
+        """
+        Async wrapper for auto_enroll_user_sync.
+        Runs the sync enrollment in a thread pool to avoid blocking async event loop.
+        """
+        logger.info(f"!!! ASYNC AUTO_ENROLL_USER CALLED for {username}, org={organization}, role={role}")
+        
+        try:
+            logger.info("Importing asyncio and ThreadPoolExecutor...")
+            import asyncio
+            from concurrent.futures import ThreadPoolExecutor
+            logger.info("Imports successful")
+            
+            logger.info(f"Getting event loop...")
+            loop = asyncio.get_event_loop()
+            logger.info(f"Event loop obtained: {type(loop)}")
+            
+            logger.info("Creating ThreadPoolExecutor...")
+            with ThreadPoolExecutor() as pool:
+                logger.info("About to call run_in_executor...")
+                result = await loop.run_in_executor(
+                    pool,
+                    self.auto_enroll_user_sync,
+                    username,
+                    organization,
+                    role
+                )
+                logger.info("run_in_executor completed")
+            
+            logger.info(f"Async enrollment result for {username}: {result.get('success')}")
+            if not result.get("success"):
+                logger.error(f"Enrollment failed for {username}: {result.get('error')}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"!!! EXCEPTION in async auto_enroll_user for {username}: {str(e)}", exc_info=True)
+            return {
+                "success": False,
+                "error": str(e),
+                "step": "async_wrapper"
             }

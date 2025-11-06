@@ -44,8 +44,9 @@ class Settings(BaseSettings):
     VERSION: str = "3.0.0"
     DEBUG: bool = os.getenv("DEBUG", "True").lower() == "true"
     
-    # CORS Configuration
-    BACKEND_CORS_ORIGINS: str = os.getenv("BACKEND_CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")
+    # CORS Configuration  
+    # Allow frontend, API gateway, and localhost for development
+    BACKEND_CORS_ORIGINS: str = os.getenv("BACKEND_CORS_ORIGINS", "http://localhost:3000,http://localhost:4000,http://localhost:8000,http://frontend,http://api-gateway")
     
     # Gateway Integration
     GATEWAY_URL: str = "http://localhost:3001"

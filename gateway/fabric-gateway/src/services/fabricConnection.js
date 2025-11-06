@@ -104,7 +104,7 @@ class FabricConnectionService {
         wallet: this.wallet,
         identity: config.FABRIC_IDENTITY,
         discovery: { 
-          enabled: true, 
+          enabled: false, 
           asLocalhost: config.FABRIC_AS_LOCALHOST 
         },
         eventHandlerOptions: {
