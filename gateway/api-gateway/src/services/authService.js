@@ -12,14 +12,54 @@ class AuthService {
     // In-memory refresh token store (can be moved to Redis in production)
     this.refreshTokens = new Map();
     
-    // Create axios instance with default config
+    // Create axios instance with default config and retry logic
     this.axiosInstance = axios.create({
       baseURL: this.backendUrl,
-      timeout: 10000,
+      timeout: 30000,  // Increased timeout for blockchain operations
       headers: {
         'Content-Type': 'application/json',
       },
+      // Axios retry configuration for DNS resolution
+      validateStatus: (status) => status < 500,
     });
+    
+    // Add request interceptor to handle DNS lookup delays
+    this.axiosInstance.interceptors.request.use(
+      (config) => {
+        // Add timestamp for debugging
+        config.metadata = { startTime: new Date() };
+        return config;
+      },
+      (error) => Promise.reject(error)
+    );
+    
+    // Add response interceptor for retry logic
+    this.axiosInstance.interceptors.response.use(
+      (response) => {
+        // Log response time
+        const duration = new Date() - response.config.metadata.startTime;
+        logger.debug(`Backend request took ${duration}ms`);
+        return response;
+      },
+      async (error) => {
+        const originalRequest = error.config;
+        
+        // Retry on network errors (ENOTFOUND, ECONNREFUSED)
+        if (!originalRequest._retry && 
+            (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED')) {
+          originalRequest._retry = true;
+          
+          logger.warn(`Backend connection failed, retrying... (${error.code})`);
+          
+          // Wait 1 second before retry
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          return this.axiosInstance(originalRequest);
+        }
+        
+        return Promise.reject(error);
+      }
+    );
     
     logger.info(`AuthService initialized with backend URL: ${this.backendUrl}`);
   }

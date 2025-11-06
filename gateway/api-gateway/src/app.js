@@ -117,6 +117,17 @@ app.use('/api/auth', authRoutes);
 app.use('/api/assets', assetRoutes);
 app.use('/fabric-gateway', blockExplorerRoutes);
 
+// ============================================
+// BACKEND PROXY ROUTES (Production Ready)
+// ============================================
+// Setup all proxy routes for backend services
+// This includes: chaincode, deployments, channels, users, 
+// certificates, projects, identity, blockchain
+const { setupProxyRoutes } = require('./routes/proxy.routes');
+setupProxyRoutes(app);
+
+logger.info('All proxy routes configured successfully');
+
 // 404 handler
 app.use('*', notFoundHandler);
 
@@ -145,12 +156,43 @@ process.on('unhandledRejection', (reason, promise) => {
   process.exit(1);
 });
 
-const PORT = config.PORT || 3000;
-app.listen(PORT, () => {
-  logger.info(`API Gateway server running on port ${PORT}`);
-  logger.info(`Environment: ${config.NODE_ENV}`);
-  logger.info(`API Documentation: http://localhost:${PORT}/api-docs`);
-  logger.info(`Health Check: http://localhost:${PORT}/health`);
-});
+// Health check for backend before starting server
+async function waitForBackend() {
+  const maxRetries = 30;
+  const retryDelay = 2000;
+  
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const axios = require('axios');
+      await axios.get(`${config.BACKEND_BASE_URL}/health`, { timeout: 5000 });
+      logger.info('Backend is ready');
+      return true;
+    } catch (error) {
+      logger.warn(`Waiting for backend... (${i + 1}/${maxRetries})`);
+      await new Promise(resolve => setTimeout(resolve, retryDelay));
+    }
+  }
+  
+  logger.error('Backend failed to become ready, starting anyway...');
+  return false;
+}
+
+// Start server
+async function startServer() {
+  // Wait for backend to be ready
+  await waitForBackend();
+  
+  const PORT = config.PORT || 3000;
+  app.listen(PORT, () => {
+    logger.info(`API Gateway server running on port ${PORT}`);
+    logger.info(`Environment: ${config.NODE_ENV}`);
+    logger.info(`Backend URL: ${config.BACKEND_BASE_URL}`);
+    logger.info(`Fabric Gateway URL: ${config.FABRIC_GATEWAY_URL}`);
+    logger.info(`API Documentation: http://localhost:${PORT}/api-docs`);
+    logger.info(`Health Check: http://localhost:${PORT}/health`);
+  });
+}
+
+startServer();
 
 module.exports = app;
